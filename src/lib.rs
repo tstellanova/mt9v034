@@ -16,11 +16,9 @@ use panic_rtt_core::rprintln;
 
 /// Errors in this crate
 #[derive(Debug)]
-pub enum Error<CommE, PinE> {
+pub enum Error<CommE> {
     /// Sensor communication error
     Comm(CommE),
-    /// Pin setting error
-    Pin(PinE),
 
     /// The sensor did not respond in a timely manner
     Timeout,
@@ -30,7 +28,8 @@ pub const DEFAULT_I2C_ADDRESS: u8 = I2C_WRITE_ADDRESS;
 
 /// Main driver struct
 pub struct Mt9v034<I2C> {
-    address: u8,
+    write_address: u8,
+    read_address: u8,
     i2c: I2C,
 }
 
@@ -43,21 +42,38 @@ where
     /// Create a new instance with an i2c address:
     /// May use DEFAULT_I2C_ADDRESS if in doubt.
     pub fn new(i2c: I2C, address: u8) -> Self {
-        Self { address, i2c }
+        Self { write_address: address, read_address: address+RW_ADDR_OFFSET, i2c }
+    }
+
+    pub fn default(i2c: I2C) -> Self {
+        Self::new(i2c, DEFAULT_I2C_ADDRESS)
+    }
+
+    /// With this sensor, the user may switch between two full register sets (listed in Table 7)
+    /// by writing to a context switch change bit in register 0x07.
+    /// This context switch will change all registers (no shadowing)
+    /// at the frame start time and have the new values apply
+    /// to the immediate next exposure and readout time (frame n+1),
+    /// except for shutter width and V1-V4 control,
+    /// which will take effect for next exposure but will show up in the n+2 image.
+    pub fn set_context(&mut self, context: ParamContext) -> Result<(), crate::Error<CommE>> {
+        self.write_reg_u16(GeneralRegisters::Control as u8, context as u16)
     }
 
     /// Second-stage configuration
-    pub fn init(&mut self) -> &mut Self {
+    pub fn setup(&mut self) -> Result<(), crate::Error<CommE>> {
         //TODO configure reserved registers per Rev G data sheet table 8
-        self
+        let _version = self.read_reg_u8(GeneralRegisters::ChipVersion as u8)?;
+        self.write_reg_u8(GeneralRegisters::SoftReset as u8, 0b11)?;
+        Ok(())
     }
 
     /// Read a u8 from an 8-bit address
-    pub fn read_reg_u8(&mut self, reg: u8) -> Result<u8, crate::Error<(), ()>> {
+    pub fn read_reg_u8(&mut self, reg: u8) -> Result<u8, crate::Error<CommE>> {
         let cmd_buf = [reg];
         let mut recv_buf = [0u8];
         self.i2c
-            .write_read(I2C_READ_ADDRESS, &cmd_buf, &mut recv_buf)
+            .write_read(self.read_address, &cmd_buf, &mut recv_buf)
             .map_err(Error::Comm)?;
 
         Ok(recv_buf[0])
@@ -67,12 +83,10 @@ where
     pub fn read_reg_u16(
         &mut self,
         reg: u8,
-    ) -> Result<u16, crate::Error<(), ()>> {
-        // read upper u8
-        let mut val: u16 = (self.read_reg_u8(reg) << 8) as u16;
-        // read lower u8
-        val = val | self.read_reg_u8(FOLLOW_UP_ADDRESS)? as u16;
-        Ok(val)
+    ) -> Result<u16, crate::Error<CommE>> {
+        let upper = (self.read_reg_u8(reg)? as u16) << 8;
+        let lower = self.read_reg_u8(FOLLOW_UP_ADDRESS)? as u16;
+        Ok(upper | lower)
     }
 
     /// Write a u8 to an 8-bit address
@@ -80,10 +94,10 @@ where
         &mut self,
         reg: u8,
         val: u8,
-    ) -> Result<(), crate::Error<(), ()>> {
+    ) -> Result<(), crate::Error<CommE>> {
         let write_buf = [reg, val];
         self.i2c
-            .write(I2C_WRITE_ADDRESS, &write_buf)
+            .write(self.write_address, &write_buf)
             .map_err(Error::Comm)?;
         Ok(())
     }
@@ -93,7 +107,7 @@ where
         &mut self,
         reg: u8,
         data: u16,
-    ) -> Result<(), crate::Error<(), ()>> {
+    ) -> Result<(), crate::Error<CommE>> {
         // write upper u8
         self.write_reg_u8(reg, (data >> 8) as u8)?;
         // write lower u8
@@ -102,9 +116,17 @@ where
     }
 }
 
+//TODO add support for register locking:
+// If the unique pattern 0xDEAD is written to R0xFE ,
+// any subsequent i2c writes to any register _other than R0xFE_ is not committed.
+// Subsequently writing the unique pattern 0xBEEF to the R0xFE will unlock registers.
+
+
 // TODO addd support for alternate addresses
 const I2C_WRITE_ADDRESS: u8 = 0xB8;
 const I2C_READ_ADDRESS: u8 = 0xB9;
+/// offset of i2c read address from write address
+const RW_ADDR_OFFSET: u8 = 0x01;
 /// Used for reading and writing a second byte on registers
 const FOLLOW_UP_ADDRESS: u8 = 0xF0;
 
@@ -114,7 +136,7 @@ pub const MAX_FRAME_WIDTH: u16 = 752;
 
 #[repr(u8)]
 pub enum GeneralRegisters {
-    Version = 0x00,
+    ChipVersion = 0x00,
     Control = 0x07,
     SoftReset = 0x0c,
     HdrEnable = 0x0f,
@@ -135,6 +157,13 @@ pub enum GeneralRegisters {
     MaxExposure = 0xad,
     AecAgcEnable = 0xaf,
     AgcAecPixelCount = 0xb0,
+}
+
+
+#[repr(u16)]
+pub enum ParamContext {
+    ContextA = 0x0188,
+    ContextB = 0x8188,
 }
 
 #[repr(u8)]
