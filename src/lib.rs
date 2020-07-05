@@ -28,8 +28,7 @@ pub const DEFAULT_I2C_ADDRESS: u8 = I2C_WRITE_ADDRESS;
 
 /// Main driver struct
 pub struct Mt9v034<I2C> {
-    write_address: u8,
-    read_address: u8,
+    base_address: u8,
     i2c: I2C,
 }
 
@@ -42,7 +41,7 @@ where
     /// Create a new instance with an i2c address:
     /// May use DEFAULT_I2C_ADDRESS if in doubt.
     pub fn new(i2c: I2C, address: u8) -> Self {
-        Self { write_address: address, read_address: address+RW_ADDR_OFFSET, i2c }
+        Self { base_address: address,  i2c }
     }
 
     pub fn default(i2c: I2C) -> Self {
@@ -73,7 +72,7 @@ where
         let cmd_buf = [reg];
         let mut recv_buf = [0u8];
         self.i2c
-            .write_read(self.read_address, &cmd_buf, &mut recv_buf)
+            .write_read(self.base_address, &cmd_buf, &mut recv_buf)
             .map_err(Error::Comm)?;
 
         Ok(recv_buf[0])
@@ -97,7 +96,7 @@ where
     ) -> Result<(), crate::Error<CommE>> {
         let write_buf = [reg, val];
         self.i2c
-            .write(self.write_address, &write_buf)
+            .write(self.base_address, &write_buf)
             .map_err(Error::Comm)?;
         Ok(())
     }
@@ -122,12 +121,13 @@ where
 // Subsequently writing the unique pattern 0xBEEF to the R0xFE will unlock registers.
 
 
-// TODO addd support for alternate addresses
+// TODO add support for alternate addresses
+//  The sensor has four possible IDs:
+//  (0x90, 0x98, 0xB0 and 0xB8) determined by the S_CTRL_ADR0 and S_CTRL_ADR1 input pins.
+
 const I2C_WRITE_ADDRESS: u8 = 0xB8;
-const I2C_READ_ADDRESS: u8 = 0xB9;
-/// offset of i2c read address from write address
-const RW_ADDR_OFFSET: u8 = 0x01;
-/// Used for reading and writing a second byte on registers
+
+/// Used for reading and writing a second byte on registers: aka "Byte-Wise Address register"
 const FOLLOW_UP_ADDRESS: u8 = 0xF0;
 
 // Array format: Wide-VGA, Active 752 H x 480 V
