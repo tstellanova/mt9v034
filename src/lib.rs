@@ -61,9 +61,21 @@ where
 
     /// Second-stage configuration
     pub fn setup(&mut self) -> Result<(), crate::Error<CommE>> {
+        #[cfg(feature = "rttdebug")]
+        rprintln!("mt9v034-i2c setup start");
         //TODO configure reserved registers per Rev G data sheet table 8
+        //self.simple_probe()?;
         let _version = self.read_reg_u8(GeneralRegisters::ChipVersion as u8)?;
         self.write_reg_u8(GeneralRegisters::SoftReset as u8, 0b11)?;
+        #[cfg(feature = "rttdebug")]
+        rprintln!("mt9v034-i2c setup done");
+        Ok(())
+    }
+
+    pub fn simple_probe(&mut self) -> Result<(), crate::Error<CommE>> {
+        let mut recv_buf = [0u8];
+        self.i2c.read(self.base_address,&mut recv_buf)
+            .map_err(Error::Comm)?;
         Ok(())
     }
 
