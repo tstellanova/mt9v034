@@ -41,7 +41,10 @@ where
     /// Create a new instance with an i2c address:
     /// May use DEFAULT_I2C_ADDRESS if in doubt.
     pub fn new(i2c: I2C, address: u8) -> Self {
-        Self { base_address: address,  i2c }
+        Self {
+            base_address: address,
+            i2c,
+        }
     }
 
     pub fn default(i2c: I2C) -> Self {
@@ -55,7 +58,10 @@ where
     /// to the immediate next exposure and readout time (frame n+1),
     /// except for shutter width and V1-V4 control,
     /// which will take effect for next exposure but will show up in the n+2 image.
-    pub fn set_context(&mut self, context: ParamContext) -> Result<(), crate::Error<CommE>> {
+    pub fn set_context(
+        &mut self,
+        context: ParamContext,
+    ) -> Result<(), crate::Error<CommE>> {
         self.write_reg_u16(GeneralRegisters::Control as u8, context as u16)
     }
 
@@ -74,7 +80,8 @@ where
 
     pub fn simple_probe(&mut self) -> Result<(), crate::Error<CommE>> {
         let mut recv_buf = [0u8];
-        self.i2c.read(self.base_address,&mut recv_buf)
+        self.i2c
+            .read(self.base_address, &mut recv_buf)
             .map_err(Error::Comm)?;
         Ok(())
     }
@@ -84,7 +91,10 @@ where
         let cmd_buf = [reg];
         let mut recv_buf = [0u8];
         self.i2c
-            .write_read(self.base_address, &cmd_buf, &mut recv_buf)
+            .write(self.base_address, &cmd_buf)
+            .map_err(Error::Comm)?;
+        self.i2c
+            .read(self.base_address, &mut recv_buf)
             .map_err(Error::Comm)?;
 
         Ok(recv_buf[0])
@@ -132,7 +142,6 @@ where
 // any subsequent i2c writes to any register _other than R0xFE_ is not committed.
 // Subsequently writing the unique pattern 0xBEEF to the R0xFE will unlock registers.
 
-
 // TODO add support for alternate addresses
 //  The sensor has four possible IDs:
 //  (0x90, 0x98, 0xB0 and 0xB8) determined by the S_CTRL_ADR0 and S_CTRL_ADR1 input pins.
@@ -170,7 +179,6 @@ pub enum GeneralRegisters {
     AecAgcEnable = 0xaf,
     AgcAecPixelCount = 0xb0,
 }
-
 
 #[repr(u16)]
 pub enum ParamContext {
