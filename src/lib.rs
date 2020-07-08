@@ -69,10 +69,14 @@ where
     pub fn setup(&mut self) -> Result<(), crate::Error<CommE>> {
         #[cfg(feature = "rttdebug")]
         rprintln!("mt9v034-i2c setup start");
-        //TODO configure reserved registers per Rev G data sheet table 8
+
+
         //self.simple_probe()?;
         let _version = self.read_reg_u8(GeneralRegisters::ChipVersion as u8)?;
         self.write_reg_u8(GeneralRegisters::SoftReset as u8, 0b11)?;
+
+        //TODO configure reserved registers per Rev G data sheet table 8
+
         #[cfg(feature = "rttdebug")]
         rprintln!("mt9v034-i2c setup done");
         Ok(())
@@ -88,6 +92,7 @@ where
 
     /// Read a u8 from an 8-bit address
     pub fn read_reg_u8(&mut self, reg: u8) -> Result<u8, crate::Error<CommE>> {
+        // behaves similarly to SCCB serial bus
         let cmd_buf = [reg];
         let mut recv_buf = [0u8];
         self.i2c
