@@ -70,7 +70,6 @@ where
         #[cfg(feature = "rttdebug")]
         rprintln!("mt9v034-i2c setup start");
 
-
         //self.simple_probe()?;
         let _version = self.read_reg_u8(GeneralRegisters::ChipVersion as u8)?;
         self.write_reg_u8(GeneralRegisters::SoftReset as u8, 0b11)?;
@@ -185,6 +184,7 @@ pub enum GeneralRegisters {
     AgcAecPixelCount = 0xb0,
 }
 
+/// Allows switching quickly between two separate configuration contexts
 #[repr(u16)]
 pub enum ParamContext {
     ContextA = 0x0188,
