@@ -24,7 +24,20 @@ pub enum Error<CommE> {
     Timeout,
 }
 
-pub const DEFAULT_I2C_ADDRESS: u8 = I2C_WRITE_ADDRESS;
+/// Camera i2c address configuration for {S_CTRL_ADR1, S_CTRL_ADR0} inputs
+/// (see Table 6 "address modes" in rev. 7 datasheet)
+
+pub const CAM_PERIPH_ADDRESS_00: u8 = 0x90 >> 1;
+pub const CAM_PERIPH_ADDRESS_01: u8 = 0x98 >> 1;
+pub const CAM_PERIPH_ADDRESS_10: u8 = 0xB0 >> 1;
+pub const CAM_PERIPH_ADDRESS_11: u8 = 0xB8 >> 1;
+
+/// The camera i2c address for the PX4FLOW board (both v1.3 and v2.3)
+pub const PX4FLOW_CAM_ADDRESS: u8 = CAM_PERIPH_ADDRESS_11;
+
+/// The camera i2c address for the Arducam breakout board ("UC-396 Rev. A")
+pub const ARDUCAM_BREAKOUT_ADDRESS:u8 = CAM_PERIPH_ADDRESS_00;
+
 
 /// Main driver struct
 pub struct Mt9v034<I2C> {
@@ -38,17 +51,12 @@ where
         + embedded_hal::blocking::i2c::Read<Error = CommE>
         + embedded_hal::blocking::i2c::WriteRead<Error = CommE>,
 {
-    /// Create a new instance with an i2c address:
-    /// May use DEFAULT_I2C_ADDRESS if in doubt.
+    /// Create a new instance with an i2c address
     pub fn new(i2c: I2C, address: u8) -> Self {
         Self {
             base_address: address,
             i2c,
         }
-    }
-
-    pub fn default(i2c: I2C) -> Self {
-        Self::new(i2c, DEFAULT_I2C_ADDRESS)
     }
 
     /// With this sensor, the user may switch between two full register sets (listed in Table 7)
@@ -68,9 +76,8 @@ where
     /// Second-stage configuration
     pub fn setup(&mut self) -> Result<(), crate::Error<CommE>> {
         #[cfg(feature = "rttdebug")]
-        rprintln!("mt9v034-i2c setup start");
+        rprintln!("mt9v034-i2c setup start 0x{:x}",self.base_address);
 
-        //self.simple_probe()?;
         let _version = self.read_reg_u8(GeneralRegisters::ChipVersion as u8)?;
         self.write_reg_u8(GeneralRegisters::SoftReset as u8, 0b11)?;
 
@@ -81,24 +88,13 @@ where
         Ok(())
     }
 
-    pub fn simple_probe(&mut self) -> Result<(), crate::Error<CommE>> {
-        let mut recv_buf = [0u8];
-        self.i2c
-            .read(self.base_address, &mut recv_buf)
-            .map_err(Error::Comm)?;
-        Ok(())
-    }
-
     /// Read a u8 from an 8-bit address
     pub fn read_reg_u8(&mut self, reg: u8) -> Result<u8, crate::Error<CommE>> {
         // behaves similarly to SCCB serial bus
         let cmd_buf = [reg];
         let mut recv_buf = [0u8];
         self.i2c
-            .write(self.base_address, &cmd_buf)
-            .map_err(Error::Comm)?;
-        self.i2c
-            .read(self.base_address, &mut recv_buf)
+            .write_read(self.base_address,&cmd_buf, &mut recv_buf)
             .map_err(Error::Comm)?;
 
         Ok(recv_buf[0])
@@ -109,6 +105,7 @@ where
         &mut self,
         reg: u8,
     ) -> Result<u16, crate::Error<CommE>> {
+        //TODO can we replace this with a single two-byte read?
         let upper = (self.read_reg_u8(reg)? as u16) << 8;
         let lower = self.read_reg_u8(FOLLOW_UP_ADDRESS)? as u16;
         Ok(upper | lower)
@@ -146,17 +143,16 @@ where
 // any subsequent i2c writes to any register _other than R0xFE_ is not committed.
 // Subsequently writing the unique pattern 0xBEEF to the R0xFE will unlock registers.
 
-// TODO add support for alternate addresses
-//  The sensor has four possible IDs:
-//  (0x90, 0x98, 0xB0 and 0xB8) determined by the S_CTRL_ADR0 and S_CTRL_ADR1 input pins.
-
-const I2C_WRITE_ADDRESS: u8 = 0xB8;
 
 /// Used for reading and writing a second byte on registers: aka "Byte-Wise Address register"
 const FOLLOW_UP_ADDRESS: u8 = 0xF0;
 
 // Array format: Wide-VGA, Active 752 H x 480 V
+
+
+/// maximum image frame height (pixels)
 pub const MAX_FRAME_HEIGHT: u16 = 480;
+/// maximum image frame width (pixels)
 pub const MAX_FRAME_WIDTH: u16 = 752;
 
 #[repr(u8)]
