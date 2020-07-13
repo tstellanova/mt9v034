@@ -125,7 +125,7 @@ where
         Ok(())
     }
 
-    /// Set some reasonable configuration defaults
+    /// Set some general configuration defaults
     pub fn set_general_defaults(&mut self) -> Result<(), crate::Error<CommE>> {
         self.write_general_reg(GeneralRegister::RowNoiseCorrCtrl, 0x0101)?; //default noise correction
         self.write_general_reg(GeneralRegister::AecAgcEnable, 0x0011)?; //enable both AEC and AGC
@@ -146,6 +146,7 @@ where
         Ok(())
     }
 
+    /// Set configuration defaults for Context B
     pub fn set_context_b_defaults(
         &mut self,
     ) -> Result<(), crate::Error<CommE>> {
@@ -165,6 +166,7 @@ where
         Ok(())
     }
 
+    /// Set configuration defaults for Context A
     pub fn set_context_a_defaults(
         &mut self,
     ) -> Result<(), crate::Error<CommE>> {
@@ -185,6 +187,24 @@ where
     }
 
     //TODO enable/disable test pattern with write to reg 0x7f
+
+    /// Set a test pattern to test pixel flow from the camera
+    pub fn enable_pixel_test_pattern(&mut self, enable: bool, pattern: u16)
+        -> Result<(), crate::Error<CommE>>
+    {
+        if enable {
+            self.write_general_reg(GeneralRegister::TestPattern, pattern)?;
+            //disable row noise correction as well (pass through test pixels)
+            self.write_general_reg(GeneralRegister::RowNoiseCorrCtrl, 0x0000)?;
+        }
+        else {
+            // clear the test pattern
+            self.write_general_reg(GeneralRegister::TestPattern, 0x0000)?;
+            //enable default noise correction
+            self.write_general_reg(GeneralRegister::RowNoiseCorrCtrl, 0x0101)?;
+        }
+        Ok(())
+    }
 
     /// Write-protect (or unprotect) all writable registers.
     /// If you enable register protection, then any subsequent writes to registers
