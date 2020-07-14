@@ -78,7 +78,7 @@ where
         rprintln!("mt9v034-i2c setup start 0x{:x}", self.base_address);
 
         // probe the device: version should match 0x1324 ?
-        let _version = self.read_reg_u8(GeneralRegister::ChipVersion as u8)?;
+        let _version = self.read_reg_u16(GeneralRegister::ChipVersion as u8)?;
 
         // configure settings that apply to all contexts
         self.set_general_defaults()?;
@@ -91,8 +91,10 @@ where
         // restart image collection
         self.write_reg_u8(GeneralRegister::SoftReset as u8, 0b11)?;
 
+        let _verify_version = self.read_reg_u16(GeneralRegister::ChipVersion as u8)?;
         #[cfg(feature = "rttdebug")]
-        rprintln!("mt9v034-i2c setup done");
+        rprintln!("mt9v034-i2c setup done, vers: 0x{:x}",_verify_version);
+
         Ok(())
     }
 
@@ -170,14 +172,36 @@ where
     pub fn set_context_a_defaults(
         &mut self,
     ) -> Result<(), crate::Error<CommE>> {
-        //TODO calculate frame/line sizes
-        self.write_context_a_reg(ContextARegister::WindowWidth, 0)?;
-        self.write_context_a_reg(ContextARegister::WindowHeight, 0)?;
-        self.write_context_a_reg(ContextARegister::HBlanking, 0)?;
-        self.write_context_a_reg(ContextARegister::VBlanking, 0)?;
+        //TODO calculate frame/line sizes from passed parameters
+        const FLOW_IMG_HEIGHT: u32 = 64;
+        const FLOW_IMG_WIDTH: u32 = 64;
+        let img_w  = FLOW_IMG_WIDTH * 4;
+        let img_h = FLOW_IMG_HEIGHT * 4;
+        const MIN_H_BLANK: u32 = 91;//min horizontal blanking for "column bin 4 mode"
+        // Per datasheet:
+        // "The minimum total row time is 704 columns (horizontal width + horizontal blanking).
+        // The minimum horizontal blanking is 61 for normal mode, 71 for column bin 2 mode,
+        // and 91 for column bin 4 mode. When the window width is set below 643,
+        // horizontal blanking must be increased.
+        // In binning mode, the minimum row time is R0x04+R0x05 = 704."
+        // Note for horiz blanking: 709 is minimum value without distortions
+        // Note for vert blanking: 10 the first value without dark line image errors
+        const H_BLANK: u32 = 425 + MIN_H_BLANK;
+        const V_BLANK: u32 = 10;
+        const MAX_FRAME_WIDTH: u32 = 752;
+        const MAX_FRAME_HEIGHT: u32 = 480;
+        const MIN_COL_START: u32 = 1;
+        const MIN_ROW_START: u32 = 4;
+        const COL_START: u32 = (MAX_FRAME_WIDTH - img_w)/2 + MIN_COL_START;
+        const ROW_START: u32 = (MAX_FRAME_HEIGHT - img_h)/ 2 + MIN_ROW_START;
+
+        self.write_context_a_reg(ContextARegister::WindowWidth, img_w)?;
+        self.write_context_a_reg(ContextARegister::WindowHeight, img_h)?;
+        self.write_context_a_reg(ContextARegister::HBlanking, H_BLANK)?;
+        self.write_context_a_reg(ContextARegister::VBlanking, V_BLANK)?;
         self.write_context_a_reg(ContextARegister::ReadMode, 0x30A)?; // row + col bin 4 enable, (9:8) default
-        self.write_context_a_reg(ContextARegister::ColumnStart, 0)?;
-        self.write_context_a_reg(ContextARegister::RowStart, 0)?;
+        self.write_context_a_reg(ContextARegister::ColumnStart, COL_START)?;
+        self.write_context_a_reg(ContextARegister::RowStart, ROW_START)?;
         self.write_context_a_reg(ContextARegister::CoarseShutter1, 443)?;
         self.write_context_a_reg(ContextARegister::CoarseShutter2, 473)?;
         self.write_context_a_reg(ContextARegister::CoarseShutterCtrl, 0x0164)?;
