@@ -173,11 +173,11 @@ where
         &mut self,
     ) -> Result<(), crate::Error<CommE>> {
         //TODO calculate frame/line sizes from passed parameters
-        const FLOW_IMG_HEIGHT: u32 = 64;
-        const FLOW_IMG_WIDTH: u32 = 64;
-        let img_w  = FLOW_IMG_WIDTH * 4;
-        let img_h = FLOW_IMG_HEIGHT * 4;
-        const MIN_H_BLANK: u32 = 91;//min horizontal blanking for "column bin 4 mode"
+        const FLOW_IMG_HEIGHT: u16 = 64;
+        const FLOW_IMG_WIDTH: u16 = 64;
+        const IMG_W: u16 = FLOW_IMG_WIDTH * 4;
+        const IMG_H: u16 = FLOW_IMG_HEIGHT * 4;
+        const MIN_H_BLANK: u16 = 91;//min horizontal blanking for "column bin 4 mode"
         // Per datasheet:
         // "The minimum total row time is 704 columns (horizontal width + horizontal blanking).
         // The minimum horizontal blanking is 61 for normal mode, 71 for column bin 2 mode,
@@ -186,17 +186,17 @@ where
         // In binning mode, the minimum row time is R0x04+R0x05 = 704."
         // Note for horiz blanking: 709 is minimum value without distortions
         // Note for vert blanking: 10 the first value without dark line image errors
-        const H_BLANK: u32 = 425 + MIN_H_BLANK;
-        const V_BLANK: u32 = 10;
-        const MAX_FRAME_WIDTH: u32 = 752;
-        const MAX_FRAME_HEIGHT: u32 = 480;
-        const MIN_COL_START: u32 = 1;
-        const MIN_ROW_START: u32 = 4;
-        const COL_START: u32 = (MAX_FRAME_WIDTH - img_w)/2 + MIN_COL_START;
-        const ROW_START: u32 = (MAX_FRAME_HEIGHT - img_h)/ 2 + MIN_ROW_START;
+        const H_BLANK: u16 = 425 + MIN_H_BLANK;
+        const V_BLANK: u16 = 10;
+        const MAX_FRAME_WIDTH: u16 = 752;
+        const MAX_FRAME_HEIGHT: u16 = 480;
+        const MIN_COL_START: u16 = 1;
+        const MIN_ROW_START: u16 = 4;
+        const COL_START: u16 = (MAX_FRAME_WIDTH - IMG_W)/2 + MIN_COL_START;
+        const ROW_START: u16 = (MAX_FRAME_HEIGHT - IMG_H)/ 2 + MIN_ROW_START;
 
-        self.write_context_a_reg(ContextARegister::WindowWidth, img_w)?;
-        self.write_context_a_reg(ContextARegister::WindowHeight, img_h)?;
+        self.write_context_a_reg(ContextARegister::WindowWidth, IMG_W)?;
+        self.write_context_a_reg(ContextARegister::WindowHeight, IMG_H)?;
         self.write_context_a_reg(ContextARegister::HBlanking, H_BLANK)?;
         self.write_context_a_reg(ContextARegister::VBlanking, V_BLANK)?;
         self.write_context_a_reg(ContextARegister::ReadMode, 0x30A)?; // row + col bin 4 enable, (9:8) default
