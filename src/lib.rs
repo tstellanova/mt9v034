@@ -14,6 +14,9 @@ LICENSE: BSD3 (see LICENSE file)
 #[cfg(feature = "rttdebug")]
 use panic_rtt_core::rprintln;
 
+use embedded_hal::blocking::delay::DelayMs;
+
+
 /// Errors in this crate
 #[derive(Debug)]
 pub enum Error<CommE> {
@@ -73,7 +76,7 @@ where
     }
 
     /// Second-stage configuration
-    pub fn setup(&mut self) -> Result<(), crate::Error<CommE>> {
+    pub fn setup(&mut self, delay_source: &mut impl DelayMs<u8>) -> Result<(), crate::Error<CommE>> {
         #[cfg(feature = "rttdebug")]
         rprintln!("mt9v034-i2c setup start 0x{:x}", self.base_address);
 
@@ -83,7 +86,7 @@ where
         #[cfg(feature = "rttdebug")]
         {
             rprintln!("before setup:");
-            let _= self.dump_all_settings();
+            let _= self.dump_all_settings(delay_source);
         }
 
         // configure settings that apply to all contexts
@@ -100,7 +103,7 @@ where
         #[cfg(feature = "rttdebug")]
         {
             rprintln!("after setup:");
-            let _= self.dump_all_settings();
+            let _= self.dump_all_settings(delay_source);
         }
 
         let _verify_version = self.read_reg_u16(GeneralRegister::ChipVersion as u8)?;
@@ -146,14 +149,14 @@ where
 
         // reserved register recommendations from:
         // "Table 8. RECOMMENDED REGISTER SETTINGS AND PERFORMANCE IMPACT (RESERVED REGISTERS)"
-        self.write_reg_u16(0x13, 0x2D2E)?;
-        self.write_reg_u16(0x20, 0x03C7)?;
-        self.write_reg_u16(0x24, 0x001B)?;
-        self.write_reg_u16(0x2B, 0x0003)?;
-        self.write_reg_u16(0x2F, 0x0003)?;
+        self.write_reg_u16(0x13, 0x2D2E)?; // reg 0x13 = 0x2d32 (11570)
+        self.write_reg_u16(0x20, 0x03C7)?; // reg 0x20 = 0x1c1 (449)
+        self.write_reg_u16(0x24, 0x001B)?; // reg 0x24 = 0x10 (16)
+        self.write_reg_u16(0x2B, 0x0003)?; // reg 0x2B = 0x4 (4)
+        self.write_reg_u16(0x2F, 0x0003)?; // reg 0x2F = 0x4 (4)
 
-
-        self.write_general_reg(GeneralRegister::RowNoiseCorrCtrl, 0x0101)?; //default noise correction
+        self.enable_pixel_test_pattern(true, 0x3000);
+        //self.write_general_reg(GeneralRegister::RowNoiseCorrCtrl, 0x0101)?; //default noise correction
         self.write_general_reg(GeneralRegister::AecAgcEnable, 0x0011)?; //enable both AEC and AGC
         self.write_general_reg(GeneralRegister::HdrEnable, 0x0001)?; // enable HDR
         self.write_general_reg(GeneralRegister::MinExposure, 0x0001)?;
@@ -171,6 +174,7 @@ where
 
         Ok(())
     }
+    
 
     /// Set configuration defaults for Context B
     pub fn set_context_b_defaults(
@@ -219,28 +223,31 @@ where
         const COL_START: u16 = (MAX_FRAME_WIDTH - IMG_W)/2 + MIN_COL_START;
         const ROW_START: u16 = (MAX_FRAME_HEIGHT - IMG_H)/ 2 + MIN_ROW_START;
 
-        self.write_context_a_reg(ContextARegister::WindowWidth, IMG_W)?;
-        self.write_context_a_reg(ContextARegister::WindowHeight, IMG_H)?;
-        self.write_context_a_reg(ContextARegister::HBlanking, H_BLANK)?;
-        self.write_context_a_reg(ContextARegister::VBlanking, V_BLANK)?;
-        self.write_context_a_reg(ContextARegister::ReadMode, 0x30A)?; // row + col bin 4 enable, (9:8) default
-        self.write_context_a_reg(ContextARegister::ColumnStart, COL_START)?;
-        self.write_context_a_reg(ContextARegister::RowStart, ROW_START)?;
-        self.write_context_a_reg(ContextARegister::CoarseShutter1, 443)?;
-        self.write_context_a_reg(ContextARegister::CoarseShutter2, 473)?;
-        self.write_context_a_reg(ContextARegister::CoarseShutterCtrl, 0x0164)?;
-        self.write_context_a_reg(ContextARegister::CoarseShutterTotal, 480)?;
+        self.write_context_a_reg(ContextARegister::WindowWidth, IMG_W)?;// reg 0x4 = 0x100 (256)  ✅
+        self.write_context_a_reg(ContextARegister::WindowHeight, IMG_H)?; // reg 0x3 = 0x100 (256) ✅
+        self.write_context_a_reg(ContextARegister::HBlanking, H_BLANK)?;// reg 0x5 = 0x204 (516)  ✅
+        self.write_context_a_reg(ContextARegister::VBlanking, V_BLANK)?;// reg 0x6 = 0xa (10)  ✅
+        self.write_context_a_reg(ContextARegister::ReadMode, 0x30A)?; // row + col bin 4 enable, (9:8) default  // reg 0xD = 0x30a (778) ✅
+        self.write_context_a_reg(ContextARegister::ColumnStart, COL_START)?;// reg 0x1 = 0xf9 (249)
+        self.write_context_a_reg(ContextARegister::RowStart, ROW_START)?;// reg 0x2 = 0x74 (116)
+        self.write_context_a_reg(ContextARegister::CoarseShutter1, 443)?;// ✅
+        self.write_context_a_reg(ContextARegister::CoarseShutter2, 473)?;// ✅
+        self.write_context_a_reg(ContextARegister::CoarseShutterCtrl, 0x0164)?;// ✅
+        self.write_context_a_reg(ContextARegister::CoarseShutterTotal, 480)?;// ✅
 
         Ok(())
     }
 
 
     #[cfg(feature = "rttdebug")]
-    pub fn dump_all_settings(&mut self) -> Result<(), crate::Error<CommE>> {
-        rprintln!("dump_all_settings:");
-        self.dump_general_settings()?;
+    pub fn dump_all_settings(&mut self, delay_source: &mut impl DelayMs<u8>) -> Result<(), crate::Error<CommE>> {
+        // rprintln!("dump_all_settings:");
+        // self.dump_general_settings()?;
+        // delay_source.delay_ms(5u8);
         self.dump_context_a_settings()?;
-        self.dump_context_b_settings()?;
+        delay_source.delay_ms(5u8);
+        // self.dump_context_b_settings()?;
+        // delay_source.delay_ms(5u8);
         Ok(())
     }
 
@@ -263,7 +270,7 @@ where
 
     #[cfg(feature = "rttdebug")]
     pub fn dump_context_b_settings(&mut self) -> Result<(), crate::Error<CommE>> {
-        rprintln!("-- Context A settings:");
+        rprintln!("-- Context B settings:");
         self.dump_register_setting(ContextBRegister::WindowWidth as u8)?;
         self.dump_register_setting(ContextBRegister::WindowHeight as u8)?;
         self.dump_register_setting(ContextBRegister::HBlanking as u8)?;
@@ -281,7 +288,7 @@ where
     #[cfg(feature = "rttdebug")]
     pub fn dump_general_settings(&mut self) -> Result<(), crate::Error<CommE>> {
         rprintln!("-- General settings:");
-
+        self.dump_register_setting(GeneralRegister::Control as u8)?;
         self.dump_register_setting(GeneralRegister::RowNoiseConstant as u8)?;
 
         // reserved register recommendation
@@ -292,6 +299,8 @@ where
         self.dump_register_setting(0x2F)?;
 
         self.dump_register_setting(GeneralRegister::RowNoiseCorrCtrl as u8)?; //default noise correction
+        self.dump_register_setting(GeneralRegister::TestPattern as u8)?; //Test pattern
+
         self.dump_register_setting(GeneralRegister::AecAgcEnable as u8)?; //enable both AEC and AGC
         self.dump_register_setting(GeneralRegister::HdrEnable as u8)?; // enable HDR
         self.dump_register_setting(GeneralRegister::MinExposure as u8)?;
@@ -312,7 +321,7 @@ where
     #[cfg(feature = "rttdebug")]
     pub fn dump_register_setting(&mut self, reg: u8) -> Result<(), crate::Error<CommE>> {
         let val = self.read_reg_u16(reg)?;
-        rprintln!("reg 0x{:X} = 0x{:x} ({})", reg, val, val);
+        rprintln!("0x{:X} = 0x{:x} {}", reg, val, val);
         Ok(())
     }
 
