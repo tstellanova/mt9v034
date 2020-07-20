@@ -80,6 +80,12 @@ where
         // probe the device: version should match 0x1324 ?
         let _version = self.read_reg_u16(GeneralRegister::ChipVersion as u8)?;
 
+        #[cfg(feature = "rttdebug")]
+        {
+            rprintln!("before setup:");
+            let _= self.dump_all_settings();
+        }
+
         // configure settings that apply to all contexts
         self.set_general_defaults()?;
         self.set_context_b_defaults()?;
@@ -90,6 +96,12 @@ where
 
         // restart image collection
         self.write_reg_u8(GeneralRegister::SoftReset as u8, 0b11)?;
+
+        #[cfg(feature = "rttdebug")]
+        {
+            rprintln!("after setup:");
+            let _= self.dump_all_settings();
+        }
 
         let _verify_version = self.read_reg_u16(GeneralRegister::ChipVersion as u8)?;
         #[cfg(feature = "rttdebug")]
@@ -129,6 +141,18 @@ where
 
     /// Set some general configuration defaults
     pub fn set_general_defaults(&mut self) -> Result<(), crate::Error<CommE>> {
+
+        self.write_reg_u8(GeneralRegister::RowNoiseConstant as u8, 0x00)?;
+
+        // reserved register recommendations from:
+        // "Table 8. RECOMMENDED REGISTER SETTINGS AND PERFORMANCE IMPACT (RESERVED REGISTERS)"
+        self.write_reg_u16(0x13, 0x2D2E)?;
+        self.write_reg_u16(0x20, 0x03C7)?;
+        self.write_reg_u16(0x24, 0x001B)?;
+        self.write_reg_u16(0x2B, 0x0003)?;
+        self.write_reg_u16(0x2F, 0x0003)?;
+
+
         self.write_general_reg(GeneralRegister::RowNoiseCorrCtrl, 0x0101)?; //default noise correction
         self.write_general_reg(GeneralRegister::AecAgcEnable, 0x0011)?; //enable both AEC and AGC
         self.write_general_reg(GeneralRegister::HdrEnable, 0x0001)?; // enable HDR
@@ -210,7 +234,87 @@ where
         Ok(())
     }
 
-    //TODO enable/disable test pattern with write to reg 0x7f
+
+    #[cfg(feature = "rttdebug")]
+    pub fn dump_all_settings(&mut self) -> Result<(), crate::Error<CommE>> {
+        rprintln!("dump_all_settings:");
+        self.dump_general_settings()?;
+        self.dump_context_a_settings()?;
+        self.dump_context_b_settings()?;
+        Ok(())
+    }
+
+    #[cfg(feature = "rttdebug")]
+    pub fn dump_context_a_settings(&mut self) -> Result<(), crate::Error<CommE>> {
+        rprintln!("-- Context A settings:");
+        self.dump_register_setting(ContextARegister::WindowWidth as u8)?;
+        self.dump_register_setting(ContextARegister::WindowHeight as u8)?;
+        self.dump_register_setting(ContextARegister::HBlanking as u8)?;
+        self.dump_register_setting(ContextARegister::VBlanking as u8)?;
+        self.dump_register_setting(ContextARegister::ReadMode as u8)?;
+        self.dump_register_setting(ContextARegister::ColumnStart as u8)?;
+        self.dump_register_setting(ContextARegister::RowStart as u8)?;
+        self.dump_register_setting(ContextARegister::CoarseShutter1 as u8)?;
+        self.dump_register_setting(ContextARegister::CoarseShutter2 as u8)?;
+        self.dump_register_setting(ContextARegister::CoarseShutterCtrl as u8)?;
+        self.dump_register_setting(ContextARegister::CoarseShutterTotal as u8)?;
+        Ok(())
+    }
+
+    #[cfg(feature = "rttdebug")]
+    pub fn dump_context_b_settings(&mut self) -> Result<(), crate::Error<CommE>> {
+        rprintln!("-- Context A settings:");
+        self.dump_register_setting(ContextBRegister::WindowWidth as u8)?;
+        self.dump_register_setting(ContextBRegister::WindowHeight as u8)?;
+        self.dump_register_setting(ContextBRegister::HBlanking as u8)?;
+        self.dump_register_setting(ContextBRegister::VBlanking as u8)?;
+        self.dump_register_setting(ContextBRegister::ReadMode as u8)?;
+        self.dump_register_setting(ContextBRegister::ColumnStart as u8)?;
+        self.dump_register_setting(ContextBRegister::RowStart as u8)?;
+        self.dump_register_setting(ContextBRegister::CoarseShutter1 as u8)?;
+        self.dump_register_setting(ContextBRegister::CoarseShutter2 as u8)?;
+        self.dump_register_setting(ContextBRegister::CoarseShutterCtrl as u8)?;
+        self.dump_register_setting(ContextBRegister::CoarseShutterTotal as u8)?;
+        Ok(())
+    }
+
+    #[cfg(feature = "rttdebug")]
+    pub fn dump_general_settings(&mut self) -> Result<(), crate::Error<CommE>> {
+        rprintln!("-- General settings:");
+
+        self.dump_register_setting(GeneralRegister::RowNoiseConstant as u8)?;
+
+        // reserved register recommendation
+        self.dump_register_setting(0x13)?;
+        self.dump_register_setting(0x20)?;
+        self.dump_register_setting(0x24)?;
+        self.dump_register_setting(0x2B)?;
+        self.dump_register_setting(0x2F)?;
+
+        self.dump_register_setting(GeneralRegister::RowNoiseCorrCtrl as u8)?; //default noise correction
+        self.dump_register_setting(GeneralRegister::AecAgcEnable as u8)?; //enable both AEC and AGC
+        self.dump_register_setting(GeneralRegister::HdrEnable as u8)?; // enable HDR
+        self.dump_register_setting(GeneralRegister::MinExposure as u8)?;
+        self.dump_register_setting(GeneralRegister::MaxExposure as u8)?;
+
+        self.dump_register_setting(GeneralRegister::AgcMaxGain as u8)?;
+        self.dump_register_setting(GeneralRegister::AgcAecPixelCount as u8)?; // use all pixels
+        self.dump_register_setting(GeneralRegister::AgcAecDesiredBin as u8)?; //desired luminance
+        self.dump_register_setting(GeneralRegister::AdcResCtrl as u8)?; // 12 bit ADC
+
+        self.dump_register_setting(GeneralRegister::AecUpdate as u8)?;
+        self.dump_register_setting(GeneralRegister::AecLowpass as u8)?;
+        self.dump_register_setting(GeneralRegister::AgcUpdate as u8)?;
+        self.dump_register_setting(GeneralRegister::AgcLowpass as u8)?;
+        Ok(())
+    }
+
+    #[cfg(feature = "rttdebug")]
+    pub fn dump_register_setting(&mut self, reg: u8) -> Result<(), crate::Error<CommE>> {
+        let val = self.read_reg_u16(reg)?;
+        rprintln!("reg 0x{:X} = 0x{:x} ({})", reg, val, val);
+        Ok(())
+    }
 
     /// Set a test pattern to test pixel flow from the camera
     pub fn enable_pixel_test_pattern(&mut self, enable: bool, pattern: u16)
@@ -322,6 +426,8 @@ pub enum GeneralRegister {
     AdcResCtrl = 0x1c,
     /// Row Noise Correction Control 1
     RowNoiseCorrCtrl = 0x70,
+    /// Row Noise Constant
+    RowNoiseConstant = 0x72,
     /// Test pattern storage
     TestPattern = 0x7f,
     /// Tiled digital gain
