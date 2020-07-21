@@ -76,18 +76,18 @@ where
     }
 
     /// Second-stage configuration
-    pub fn setup(&mut self, delay_source: &mut impl DelayMs<u8>) -> Result<(), crate::Error<CommE>> {
+    pub fn setup(&mut self, _delay_source: &mut impl DelayMs<u8>) -> Result<(), crate::Error<CommE>> {
         #[cfg(feature = "rttdebug")]
         rprintln!("mt9v034-i2c setup start 0x{:x}", self.base_address);
 
         // probe the device: version should match 0x1324 ?
         let _version = self.read_reg_u16(GeneralRegister::ChipVersion as u8)?;
 
-        #[cfg(feature = "rttdebug")]
-        {
-            rprintln!("before setup:");
-            let _= self.dump_all_settings(delay_source);
-        }
+        // #[cfg(feature = "rttdebug")]
+        // {
+        //     rprintln!("before setup:");
+        //     let _= self.dump_all_settings(delay_source);
+        // }
 
         // configure settings that apply to all contexts
         self.set_general_defaults()?;
@@ -98,13 +98,13 @@ where
         self.set_context(ParamContext::ContextA)?;
 
         // restart image collection
-        self.write_reg_u8(GeneralRegister::SoftReset as u8, 0b11)?;
+        self.write_general_reg(GeneralRegister::SoftReset, 0x01)?;
 
-        #[cfg(feature = "rttdebug")]
-        {
-            rprintln!("after setup:");
-            let _= self.dump_all_settings(delay_source);
-        }
+        // #[cfg(feature = "rttdebug")]
+        // {
+        //     rprintln!("after setup:");
+        //     let _= self.dump_all_settings(delay_source);
+        // }
 
         let _verify_version = self.read_reg_u16(GeneralRegister::ChipVersion as u8)?;
         #[cfg(feature = "rttdebug")]
@@ -155,7 +155,7 @@ where
         self.write_reg_u16(0x2B, 0x0003)?; // reg 0x2B = 0x4 (4)
         self.write_reg_u16(0x2F, 0x0003)?; // reg 0x2F = 0x4 (4)
 
-        self.enable_pixel_test_pattern(true, 0x3000);
+        let _ = self.enable_pixel_test_pattern(true, 0x3000);
         //self.write_general_reg(GeneralRegister::RowNoiseCorrCtrl, 0x0101)?; //default noise correction
         self.write_general_reg(GeneralRegister::AecAgcEnable, 0x0011)?; //enable both AEC and AGC
         self.write_general_reg(GeneralRegister::HdrEnable, 0x0001)?; // enable HDR
