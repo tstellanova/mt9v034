@@ -155,15 +155,18 @@ where
         self.write_reg_u16(0x2B, 0x0003)?; // reg 0x2B = 0x4 (4)
         self.write_reg_u16(0x2F, 0x0003)?; // reg 0x2F = 0x4 (4)
 
-        let _ = self.enable_pixel_test_pattern(true, 0x3000);
-        //self.write_general_reg(GeneralRegister::RowNoiseCorrCtrl, 0x0101)?; //default noise correction
+        // disable any test pattern by default
+        self.write_general_reg(GeneralRegister::TestPattern, 0x0000)?;
+
+        self.write_general_reg(GeneralRegister::RowNoiseCorrCtrl, 0x0101)?; //default noise correction
         self.write_general_reg(GeneralRegister::AecAgcEnable, 0x0011)?; //enable both AEC and AGC
         self.write_general_reg(GeneralRegister::HdrEnable, 0x0001)?; // enable HDR
         self.write_general_reg(GeneralRegister::MinExposure, 0x0001)?;
         self.write_general_reg(GeneralRegister::MaxExposure, 0x1F4)?;
 
         self.write_general_reg(GeneralRegister::AgcMaxGain, 0x0010)?;
-        self.write_general_reg(GeneralRegister::AgcAecPixelCount, 64 * 64)?; // use all pixels
+        //TODO make pixel count variable based on dimensions?
+        self.write_general_reg(GeneralRegister::AgcAecPixelCount, 64 * 64)?;
         self.write_general_reg(GeneralRegister::AgcAecDesiredBin, 20)?; //desired luminance
         self.write_general_reg(GeneralRegister::AdcResCtrl, 0x0303)?; // 12 bit ADC
 
@@ -325,12 +328,13 @@ where
         Ok(())
     }
 
-    /// Set a test pattern to test pixel flow from the camera
-    pub fn enable_pixel_test_pattern(&mut self, enable: bool, pattern: u16)
+
+    /// Set a test pattern to test pixel data transfer from the camera
+    pub fn enable_pixel_test_pattern(&mut self, enable: bool, pattern: PixelTestPattern)
         -> Result<(), crate::Error<CommE>>
     {
         if enable {
-            self.write_general_reg(GeneralRegister::TestPattern, pattern)?;
+            self.write_general_reg(GeneralRegister::TestPattern, (pattern as u16) | 0x2000)?;
             //disable row noise correction as well (pass through test pixels)
             self.write_general_reg(GeneralRegister::RowNoiseCorrCtrl, 0x0000)?;
         }
@@ -528,3 +532,13 @@ pub enum ContextBRegister {
     FineShutter2 = 0xD7,
     FineShutterTotal = 0xD8,
 }
+
+/// Pixel test patterns for verifying correct pixel transfer from the camera
+#[repr(u16)]
+pub enum PixelTestPattern {
+    None = 0x0000,
+    VerticalShade = 0x0800,
+    HorizontalShade = 0x1000,
+    DiagonalShade = 0x1800,
+}
+

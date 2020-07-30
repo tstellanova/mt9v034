@@ -11,7 +11,8 @@ This driver specifically interfaces with the sensor's
 two-wire (i2c) programming interface, which allows you to set
 various camera configuration parameters.  This driver does not obtain
 pixel data from the camera.  For that you will need a driver that 
-pulls data from the camera's parallel data lines.  (Example forthcoming in another crate.)
+pulls data from the camera's parallel data lines.  
+(Example in the [px4flow_bsp crate](https://crates.io/crates/px4flow_bsp).)
 
 ## License
 
@@ -19,7 +20,7 @@ BSD-3-Clause: see LICENSE file
 
 ## Status
 
-- [ ] Access to basic configuration registers
-- [ ] Support for register locking (to prevent accidental changes due to i2c noise)
-- [ ] Example for cortex-m
+- [x] Access to basic configuration registers
+- [x] Support for register locking (to prevent accidental changes due to i2c noise)
+- [x] [Example for cortex-m](https://github.com/tstellanova/px4flow_bsp)
 
