@@ -120,8 +120,7 @@ where
         reg: GeneralRegister,
         data: u16,
     ) -> Result<(), crate::Error<CommE>> {
-        self.write_reg_u16(reg as u8, data)?;
-        Ok(())
+        self.write_reg_u16(reg as u8, data)
     }
 
     fn write_context_a_reg(
@@ -129,8 +128,7 @@ where
         reg: ContextARegister,
         data: u16,
     ) -> Result<(), crate::Error<CommE>> {
-        self.write_reg_u16(reg as u8, data)?;
-        Ok(())
+        self.write_reg_u16(reg as u8, data)
     }
 
     fn write_context_b_reg(
@@ -138,8 +136,7 @@ where
         reg: ContextBRegister,
         data: u16,
     ) -> Result<(), crate::Error<CommE>> {
-        self.write_reg_u16(reg as u8, data)?;
-        Ok(())
+        self.write_reg_u16(reg as u8, data)
     }
 
     /// Set some general configuration defaults
@@ -166,7 +163,7 @@ where
 
         self.write_general_reg(GeneralRegister::AgcMaxGain, 0x0010)?;
         //TODO make pixel count variable based on dimensions?
-        self.write_general_reg(GeneralRegister::AgcAecPixelCount, 64 * 64)?;
+        self.write_general_reg(GeneralRegister::AgcAecPixelCount, 64 * 64)?; // TODO
         self.write_general_reg(GeneralRegister::AgcAecDesiredBin, 20)?; //desired luminance
         self.write_general_reg(GeneralRegister::AdcResCtrl, 0x0303)?; // 12 bit ADC
 
@@ -184,17 +181,20 @@ where
         &mut self,
     ) -> Result<(), crate::Error<CommE>> {
         //TODO calculate frame/line sizes
+
+        // 0x300 is the default value for 9:8 on ReadMode
+        // here we use column binning four, row binning two
+        let read_mode: u16 = 0x300 | ((Binning::Four as u16) << 2) | (Binning::Two as u16);
+
         self.write_context_b_reg(ContextBRegister::WindowWidth, 0)?;
         self.write_context_b_reg(ContextBRegister::WindowHeight, 0)?;
         self.write_context_b_reg(ContextBRegister::HBlanking, 0)?;
         self.write_context_b_reg(ContextBRegister::VBlanking, 0)?;
-        self.write_context_b_reg(ContextBRegister::ReadMode, 0x305)?; // row bin 2 col bin 4 enable, (9:8)
+        self.write_context_b_reg(ContextBRegister::ReadMode, read_mode)?;
         self.write_context_b_reg(ContextBRegister::ColumnStart, 0)?;
         self.write_context_b_reg(ContextBRegister::RowStart, 0)?;
-        self.write_context_b_reg(ContextBRegister::CoarseShutter1, 443)?;
-        self.write_context_b_reg(ContextBRegister::CoarseShutter2, 473)?;
-        self.write_context_b_reg(ContextBRegister::CoarseShutterCtrl, 0x0164)?;
-        self.write_context_b_reg(ContextBRegister::CoarseShutterTotal, 480)?;
+
+        self.set_context_b_shutter_defaults()?;
 
         Ok(())
     }
@@ -203,11 +203,56 @@ where
     pub fn set_context_a_defaults(
         &mut self,
     ) -> Result<(), crate::Error<CommE>> {
-        //TODO calculate frame/line sizes from passed parameters
         const FLOW_IMG_HEIGHT: u16 = 64;
         const FLOW_IMG_WIDTH: u16 = 64;
-        const IMG_W: u16 = FLOW_IMG_WIDTH * 4;
-        const IMG_H: u16 = FLOW_IMG_HEIGHT * 4;
+        const COLUMN_BINNING: Binning = Binning::Four;
+        const ROW_BINNING: Binning = Binning::Four;
+        const IMG_W: u16 = FLOW_IMG_WIDTH * (COLUMN_BINNING as u16);
+        const IMG_H: u16 = FLOW_IMG_HEIGHT * (ROW_BINNING as u16);
+
+        self.set_context_a_dimensions(IMG_H, IMG_W,COLUMN_BINNING,ROW_BINNING)
+
+        // const MIN_H_BLANK: u16 = 91;//min horizontal blanking for "column bin 4 mode"
+        // // Per datasheet:
+        // // "The minimum total row time is 704 columns (horizontal width + horizontal blanking).
+        // // The minimum horizontal blanking is 61 for normal mode, 71 for column bin 2 mode,
+        // // and 91 for column bin 4 mode. When the window width is set below 643,
+        // // horizontal blanking must be increased.
+        // // In binning mode, the minimum row time is R0x04+R0x05 = 704."
+        // // Note for horiz blanking: 709 is minimum value without distortions
+        // // Note for vert blanking: 10 the first value without dark line image errors
+        // const H_BLANK: u16 = 425 + MIN_H_BLANK;
+        // const V_BLANK: u16 = 10;
+        //
+        // const MIN_COL_START: u16 = 1;
+        // const MIN_ROW_START: u16 = 4;
+        // const COL_START: u16 = (MAX_FRAME_WIDTH - IMG_W)/2 + MIN_COL_START;
+        // const ROW_START: u16 = (MAX_FRAME_HEIGHT - IMG_H)/ 2 + MIN_ROW_START;
+        //
+        // self.write_context_a_reg(ContextARegister::WindowWidth, IMG_W)?;// reg 0x4 = 0x100 (256)  ✅
+        // self.write_context_a_reg(ContextARegister::WindowHeight, IMG_H)?; // reg 0x3 = 0x100 (256) ✅
+        // self.write_context_a_reg(ContextARegister::HBlanking, H_BLANK)?;// reg 0x5 = 0x204 (516)  ✅
+        // self.write_context_a_reg(ContextARegister::VBlanking, V_BLANK)?;// reg 0x6 = 0xa (10)  ✅
+        // self.write_context_a_reg(ContextARegister::ReadMode, 0x30A)?; // row + col bin 4 enable, (9:8) default  // reg 0xD = 0x30a (778) ✅
+        // self.write_context_a_reg(ContextARegister::ColumnStart, COL_START)?;// reg 0x1 = 0xf9 (249)
+        // self.write_context_a_reg(ContextARegister::RowStart, ROW_START)?;// reg 0x2 = 0x74 (116)
+        // self.write_context_a_reg(ContextARegister::CoarseShutter1, 443)?;// ✅
+        // self.write_context_a_reg(ContextARegister::CoarseShutter2, 473)?;// ✅
+        // self.write_context_a_reg(ContextARegister::CoarseShutterCtrl, 0x0164)?;// ✅
+        // self.write_context_a_reg(ContextARegister::CoarseShutterTotal, 480)?;// ✅
+        //
+        // Ok(())
+    }
+
+    /// Configure image dimensions
+    pub fn set_context_a_dimensions(
+        &mut self,
+        img_h: u16,
+        img_w: u16,
+        column_binning: Binning,
+        row_binning: Binning,
+    ) -> Result<(), crate::Error<CommE>> {
+
         const MIN_H_BLANK: u16 = 91;//min horizontal blanking for "column bin 4 mode"
         // Per datasheet:
         // "The minimum total row time is 704 columns (horizontal width + horizontal blanking).
@@ -217,27 +262,55 @@ where
         // In binning mode, the minimum row time is R0x04+R0x05 = 704."
         // Note for horiz blanking: 709 is minimum value without distortions
         // Note for vert blanking: 10 the first value without dark line image errors
+
+        //TODO calculate blanking based on parameter inputs
         const H_BLANK: u16 = 425 + MIN_H_BLANK;
         const V_BLANK: u16 = 10;
-        const MAX_FRAME_WIDTH: u16 = 752;
-        const MAX_FRAME_HEIGHT: u16 = 480;
+
         const MIN_COL_START: u16 = 1;
         const MIN_ROW_START: u16 = 4;
-        const COL_START: u16 = (MAX_FRAME_WIDTH - IMG_W)/2 + MIN_COL_START;
-        const ROW_START: u16 = (MAX_FRAME_HEIGHT - IMG_H)/ 2 + MIN_ROW_START;
+        // center the window horizontally
+        let col_start: u16 = (MAX_FRAME_WIDTH - img_w)/2 + MIN_COL_START;
+        // center the window vertically
+        let row_start: u16 = (MAX_FRAME_HEIGHT - img_h)/2 + MIN_ROW_START;
 
-        self.write_context_a_reg(ContextARegister::WindowWidth, IMG_W)?;// reg 0x4 = 0x100 (256)  ✅
-        self.write_context_a_reg(ContextARegister::WindowHeight, IMG_H)?; // reg 0x3 = 0x100 (256) ✅
-        self.write_context_a_reg(ContextARegister::HBlanking, H_BLANK)?;// reg 0x5 = 0x204 (516)  ✅
-        self.write_context_a_reg(ContextARegister::VBlanking, V_BLANK)?;// reg 0x6 = 0xa (10)  ✅
-        self.write_context_a_reg(ContextARegister::ReadMode, 0x30A)?; // row + col bin 4 enable, (9:8) default  // reg 0xD = 0x30a (778) ✅
-        self.write_context_a_reg(ContextARegister::ColumnStart, COL_START)?;// reg 0x1 = 0xf9 (249)
-        self.write_context_a_reg(ContextARegister::RowStart, ROW_START)?;// reg 0x2 = 0x74 (116)
-        self.write_context_a_reg(ContextARegister::CoarseShutter1, 443)?;// ✅
-        self.write_context_a_reg(ContextARegister::CoarseShutter2, 473)?;// ✅
-        self.write_context_a_reg(ContextARegister::CoarseShutterCtrl, 0x0164)?;// ✅
-        self.write_context_a_reg(ContextARegister::CoarseShutterTotal, 480)?;// ✅
+        //TODO calculate V_BLANK and H_BLANK??
 
+        //s/b 0x30A with both bin 4:
+        // 0x300 is the default value for 9:8 on ReadMode
+        let read_mode: u16 = 0x300 | ((column_binning as u16) << 2) | (row_binning as u16);
+
+        self.write_context_a_reg(ContextARegister::WindowWidth, img_w)?;
+        self.write_context_a_reg(ContextARegister::WindowHeight, img_h)?;
+        self.write_context_a_reg(ContextARegister::HBlanking, H_BLANK)?;
+        self.write_context_a_reg(ContextARegister::VBlanking, V_BLANK)?;
+        self.write_context_a_reg(ContextARegister::ReadMode, read_mode)?;
+        self.write_context_a_reg(ContextARegister::ColumnStart, col_start)?;
+        self.write_context_a_reg(ContextARegister::RowStart, row_start)?;
+
+        self.set_context_a_shutter_defaults()?;
+        Ok(())
+    }
+
+    pub fn set_context_a_shutter_defaults(&mut self) -> Result<(), crate::Error<CommE>>
+    {
+        //TODO allow passing shutter control parameters?
+        // by default we activate HDR
+        self.write_context_a_reg(ContextARegister::CoarseShutter1, 443)?; //default value
+        self.write_context_a_reg(ContextARegister::CoarseShutter2, 473)?; //default value
+        self.write_context_a_reg(ContextARegister::CoarseShutterCtrl, 0x0164)?;//default value
+        self.write_context_a_reg(ContextARegister::CoarseShutterTotal, 0x01E0)?; //default value
+        Ok(())
+    }
+
+    pub fn set_context_b_shutter_defaults(&mut self) -> Result<(), crate::Error<CommE>>
+    {
+        //TODO allow passing shutter control parameters?
+        // by default we activate HDR
+        self.write_context_b_reg(ContextBRegister::CoarseShutter1, 443)?; //default value
+        self.write_context_b_reg(ContextBRegister::CoarseShutter2, 473)?; //default value
+        self.write_context_b_reg(ContextBRegister::CoarseShutterCtrl, 0x0164)?;//default value
+        self.write_context_b_reg(ContextBRegister::CoarseShutterTotal, 0x01E0)?; //default value
         Ok(())
     }
 
@@ -542,3 +615,13 @@ pub enum PixelTestPattern {
     DiagonalShade = 0x1800,
 }
 
+/// Allowed row and column binning options
+#[repr(u8)]
+pub enum Binning {
+    /// No binning (full resolution)
+    None = 0b00,
+    /// Binning 2: combine two adjacent pixels
+    Two = 0b01,
+    /// Binning 4: combine four adjacent pixels
+    Four = 0b10,
+}
