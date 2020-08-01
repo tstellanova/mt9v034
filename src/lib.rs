@@ -235,28 +235,34 @@ where
         column_binning: Binning,
         row_binning: Binning,
     ) -> Result<(), crate::Error<CommE>> {
-        const MIN_H_BLANK: u16 = 91; //min horizontal blanking for "column bin 4 mode"
-                                     // Per datasheet:
-                                     // "The minimum total row time is 704 columns (horizontal width + horizontal blanking).
-                                     // The minimum horizontal blanking is 61 for normal mode, 71 for column bin 2 mode,
-                                     // and 91 for column bin 4 mode. When the window width is set below 643,
-                                     // horizontal blanking must be increased.
-                                     // In binning mode, the minimum row time is R0x04+R0x05 = 704."
-                                     // Note for horiz blanking: 709 is minimum value without distortions
-                                     // Note for vert blanking: 10 the first value without dark line image errors
 
-        //TODO calculate blanking based on parameter inputs
-        const H_BLANK: u16 = 425 + MIN_H_BLANK;
+        // Per datasheet:
+        // "The minimum total row time is 704 columns (horizontal width + horizontal blanking).
+        // The minimum horizontal blanking is:
+        // - 61 for normal mode,
+        // - 71 for column bin 2 mode,
+        // - 91 for column bin 4 mode.
+        // When the window width is set below 643,  horizontal blanking must be increased.
+        // In binning mode, the minimum row time is R0x04+R0x05 = 704."
+
+        let min_h_blank:u16 = match column_binning {
+            Binning::None => 61,
+            Binning::Two => 71,
+            Binning::Four => 91,
+        };
+
+        // Note for vert blanking: 10 the first value without dark line image errors
+
+        //TODO calculate  V_BLANK and H_BLANK based on parameter inputs
+        let h_blank: u16 = 425 + min_h_blank;
         const V_BLANK: u16 = 10;
 
         const MIN_COL_START: u16 = 1;
-        const MIN_ROW_START: u16 = 4;
+        const MIN_ROW_START: u16 = 4;//TODO verify "dark rows"
         // center the window horizontally
         let col_start: u16 = (MAX_FRAME_WIDTH - window_w) / 2 + MIN_COL_START;
         // center the window vertically
         let row_start: u16 = (MAX_FRAME_HEIGHT - window_h) / 2 + MIN_ROW_START;
-
-        //TODO calculate V_BLANK and H_BLANK??
 
         //s/b 0x30A with both bin 4:
         // 0x300 is the default value for 9:8 on ReadMode
@@ -267,7 +273,7 @@ where
             ParamContext::ContextA => {
                 self.write_context_a_reg(ContextARegister::WindowWidth, window_w)?;
                 self.write_context_a_reg(ContextARegister::WindowHeight, window_h)?;
-                self.write_context_a_reg(ContextARegister::HBlanking, H_BLANK)?;
+                self.write_context_a_reg(ContextARegister::HBlanking, h_blank)?;
                 self.write_context_a_reg(ContextARegister::VBlanking, V_BLANK)?;
                 self.write_context_a_reg(ContextARegister::ReadMode, read_mode)?;
                 self.write_context_a_reg(ContextARegister::ColumnStart, col_start)?;
@@ -276,7 +282,7 @@ where
             ParamContext::ContextB => {
                 self.write_context_b_reg(ContextBRegister::WindowWidth, window_w)?;
                 self.write_context_b_reg(ContextBRegister::WindowHeight, window_h)?;
-                self.write_context_b_reg(ContextBRegister::HBlanking, H_BLANK)?;
+                self.write_context_b_reg(ContextBRegister::HBlanking, h_blank)?;
                 self.write_context_b_reg(ContextBRegister::VBlanking, V_BLANK)?;
                 self.write_context_b_reg(ContextBRegister::ReadMode, read_mode)?;
                 self.write_context_b_reg(ContextBRegister::ColumnStart, col_start)?;
