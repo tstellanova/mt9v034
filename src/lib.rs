@@ -16,7 +16,6 @@ use panic_rtt_core::rprintln;
 
 use embedded_hal::blocking::delay::DelayMs;
 
-
 /// Errors in this crate
 #[derive(Debug)]
 pub enum Error<CommE> {
@@ -76,7 +75,10 @@ where
     }
 
     /// Second-stage configuration
-    pub fn setup(&mut self, _delay_source: &mut impl DelayMs<u8>) -> Result<(), crate::Error<CommE>> {
+    pub fn setup(
+        &mut self,
+        _delay_source: &mut impl DelayMs<u8>,
+    ) -> Result<(), crate::Error<CommE>> {
         #[cfg(feature = "rttdebug")]
         rprintln!("mt9v034-i2c setup start 0x{:x}", self.base_address);
 
@@ -91,10 +93,12 @@ where
 
         // configure settings that apply to all contexts
         self.set_general_defaults()?;
-        self.set_context_b_defaults()?;
-        self.set_context_a_defaults()?;
+        self.set_context_b_default_dimensions()?;
+        self.set_context_b_shutter_defaults()?;
+        self.set_context_a_default_dimensions()?;
+        self.set_context_a_shutter_defaults()?;
 
-        //default to Context A
+        //Select Context A
         self.set_context(ParamContext::ContextA)?;
 
         // restart image collection
@@ -106,12 +110,15 @@ where
         //     let _= self.dump_all_settings(delay_source);
         // }
 
-        let _verify_version = self.read_reg_u16(GeneralRegister::ChipVersion as u8)?;
+        let _verify_version =
+            self.read_reg_u16(GeneralRegister::ChipVersion as u8)?;
         #[cfg(feature = "rttdebug")]
-        rprintln!("mt9v034-i2c setup done, vers: 0x{:x}",_verify_version);
+        rprintln!("mt9v034-i2c setup done, vers: 0x{:x}", _verify_version);
 
         Ok(())
     }
+
+
 
     //TODO add config methods for setting frame dimensions for context A and context B
 
@@ -141,7 +148,6 @@ where
 
     /// Set some general configuration defaults
     pub fn set_general_defaults(&mut self) -> Result<(), crate::Error<CommE>> {
-
         self.write_reg_u8(GeneralRegister::RowNoiseConstant as u8, 0x00)?;
 
         // reserved register recommendations from:
@@ -163,7 +169,7 @@ where
 
         self.write_general_reg(GeneralRegister::AgcMaxGain, 0x0010)?;
         //TODO make pixel count variable based on dimensions?
-        self.write_general_reg(GeneralRegister::AgcAecPixelCount, 64 * 64)?; // TODO
+        self.write_general_reg(GeneralRegister::AgcAecPixelCount, 64 * 64)?; // TODO adjust with binning
         self.write_general_reg(GeneralRegister::AgcAecDesiredBin, 20)?; //desired luminance
         self.write_general_reg(GeneralRegister::AdcResCtrl, 0x0303)?; // 12 bit ADC
 
@@ -174,94 +180,70 @@ where
 
         Ok(())
     }
-    
 
-    /// Set configuration defaults for Context B
-    pub fn set_context_b_defaults(
+    /// Set default image capture dimensions for Context B
+    pub fn set_context_b_default_dimensions(
         &mut self,
     ) -> Result<(), crate::Error<CommE>> {
         //TODO calculate frame/line sizes
+        const VIDEO_IMG_HEIGHT: u16 = 480 / 2;
+        const VIDEO_IMG_WIDTH: u16 = 752 / 2;
+        const COLUMN_BINNING: Binning = Binning::Two;
+        const ROW_BINNING: Binning = Binning::Two;
+        const WINDOW_W: u16 = VIDEO_IMG_WIDTH * 2;
+        const WINDOW_H: u16 = VIDEO_IMG_HEIGHT * 2;
 
-        // 0x300 is the default value for 9:8 on ReadMode
-        // here we use column binning four, row binning two
-        let read_mode: u16 = 0x300 | ((Binning::Four as u16) << 2) | (Binning::Two as u16);
-
-        self.write_context_b_reg(ContextBRegister::WindowWidth, 0)?;
-        self.write_context_b_reg(ContextBRegister::WindowHeight, 0)?;
-        self.write_context_b_reg(ContextBRegister::HBlanking, 0)?;
-        self.write_context_b_reg(ContextBRegister::VBlanking, 0)?;
-        self.write_context_b_reg(ContextBRegister::ReadMode, read_mode)?;
-        self.write_context_b_reg(ContextBRegister::ColumnStart, 0)?;
-        self.write_context_b_reg(ContextBRegister::RowStart, 0)?;
-
-        self.set_context_b_shutter_defaults()?;
-
-        Ok(())
+        self.set_context_dimensions(
+            ParamContext::ContextB,
+            WINDOW_H,
+            WINDOW_W,
+            COLUMN_BINNING,
+            ROW_BINNING,
+        )
     }
 
-    /// Set configuration defaults for Context A
-    pub fn set_context_a_defaults(
+    /// Set default image capture dimensions for Context A
+    pub fn set_context_a_default_dimensions(
         &mut self,
     ) -> Result<(), crate::Error<CommE>> {
         const FLOW_IMG_HEIGHT: u16 = 64;
         const FLOW_IMG_WIDTH: u16 = 64;
         const COLUMN_BINNING: Binning = Binning::Four;
         const ROW_BINNING: Binning = Binning::Four;
-        const IMG_W: u16 = FLOW_IMG_WIDTH * (COLUMN_BINNING as u16);
-        const IMG_H: u16 = FLOW_IMG_HEIGHT * (ROW_BINNING as u16);
+        const WINDOW_W: u16 = FLOW_IMG_WIDTH * 4;
+        const WINDOW_H: u16 = FLOW_IMG_HEIGHT * 4;
 
-        self.set_context_a_dimensions(IMG_H, IMG_W,COLUMN_BINNING,ROW_BINNING)
-
-        // const MIN_H_BLANK: u16 = 91;//min horizontal blanking for "column bin 4 mode"
-        // // Per datasheet:
-        // // "The minimum total row time is 704 columns (horizontal width + horizontal blanking).
-        // // The minimum horizontal blanking is 61 for normal mode, 71 for column bin 2 mode,
-        // // and 91 for column bin 4 mode. When the window width is set below 643,
-        // // horizontal blanking must be increased.
-        // // In binning mode, the minimum row time is R0x04+R0x05 = 704."
-        // // Note for horiz blanking: 709 is minimum value without distortions
-        // // Note for vert blanking: 10 the first value without dark line image errors
-        // const H_BLANK: u16 = 425 + MIN_H_BLANK;
-        // const V_BLANK: u16 = 10;
-        //
-        // const MIN_COL_START: u16 = 1;
-        // const MIN_ROW_START: u16 = 4;
-        // const COL_START: u16 = (MAX_FRAME_WIDTH - IMG_W)/2 + MIN_COL_START;
-        // const ROW_START: u16 = (MAX_FRAME_HEIGHT - IMG_H)/ 2 + MIN_ROW_START;
-        //
-        // self.write_context_a_reg(ContextARegister::WindowWidth, IMG_W)?;// reg 0x4 = 0x100 (256)  ✅
-        // self.write_context_a_reg(ContextARegister::WindowHeight, IMG_H)?; // reg 0x3 = 0x100 (256) ✅
-        // self.write_context_a_reg(ContextARegister::HBlanking, H_BLANK)?;// reg 0x5 = 0x204 (516)  ✅
-        // self.write_context_a_reg(ContextARegister::VBlanking, V_BLANK)?;// reg 0x6 = 0xa (10)  ✅
-        // self.write_context_a_reg(ContextARegister::ReadMode, 0x30A)?; // row + col bin 4 enable, (9:8) default  // reg 0xD = 0x30a (778) ✅
-        // self.write_context_a_reg(ContextARegister::ColumnStart, COL_START)?;// reg 0x1 = 0xf9 (249)
-        // self.write_context_a_reg(ContextARegister::RowStart, ROW_START)?;// reg 0x2 = 0x74 (116)
-        // self.write_context_a_reg(ContextARegister::CoarseShutter1, 443)?;// ✅
-        // self.write_context_a_reg(ContextARegister::CoarseShutter2, 473)?;// ✅
-        // self.write_context_a_reg(ContextARegister::CoarseShutterCtrl, 0x0164)?;// ✅
-        // self.write_context_a_reg(ContextARegister::CoarseShutterTotal, 480)?;// ✅
-        //
-        // Ok(())
+        self.set_context_dimensions(
+            ParamContext::ContextA,
+            WINDOW_H,
+            WINDOW_W,
+            COLUMN_BINNING,
+            ROW_BINNING,
+        )
     }
 
-    /// Configure image dimensions
-    pub fn set_context_a_dimensions(
+    /// Configure image capture dimensions for the given context
+    /// - `context` the configuration context (A or B) to configure
+    /// - `window_h` and `window_w`: dimensions of the pixel window to collect pixels from
+    /// - `column_binning` binning to apply to the window's columns
+    /// - `row_binning` binning to apply to the window's rows
+    pub fn set_context_dimensions(
         &mut self,
-        img_h: u16,
-        img_w: u16,
+        context: ParamContext,
+        window_h: u16,
+        window_w: u16,
         column_binning: Binning,
         row_binning: Binning,
     ) -> Result<(), crate::Error<CommE>> {
-
-        const MIN_H_BLANK: u16 = 91;//min horizontal blanking for "column bin 4 mode"
-        // Per datasheet:
-        // "The minimum total row time is 704 columns (horizontal width + horizontal blanking).
-        // The minimum horizontal blanking is 61 for normal mode, 71 for column bin 2 mode,
-        // and 91 for column bin 4 mode. When the window width is set below 643,
-        // horizontal blanking must be increased.
-        // In binning mode, the minimum row time is R0x04+R0x05 = 704."
-        // Note for horiz blanking: 709 is minimum value without distortions
-        // Note for vert blanking: 10 the first value without dark line image errors
+        const MIN_H_BLANK: u16 = 91; //min horizontal blanking for "column bin 4 mode"
+                                     // Per datasheet:
+                                     // "The minimum total row time is 704 columns (horizontal width + horizontal blanking).
+                                     // The minimum horizontal blanking is 61 for normal mode, 71 for column bin 2 mode,
+                                     // and 91 for column bin 4 mode. When the window width is set below 643,
+                                     // horizontal blanking must be increased.
+                                     // In binning mode, the minimum row time is R0x04+R0x05 = 704."
+                                     // Note for horiz blanking: 709 is minimum value without distortions
+                                     // Note for vert blanking: 10 the first value without dark line image errors
 
         //TODO calculate blanking based on parameter inputs
         const H_BLANK: u16 = 425 + MIN_H_BLANK;
@@ -270,53 +252,72 @@ where
         const MIN_COL_START: u16 = 1;
         const MIN_ROW_START: u16 = 4;
         // center the window horizontally
-        let col_start: u16 = (MAX_FRAME_WIDTH - img_w)/2 + MIN_COL_START;
+        let col_start: u16 = (MAX_FRAME_WIDTH - window_w) / 2 + MIN_COL_START;
         // center the window vertically
-        let row_start: u16 = (MAX_FRAME_HEIGHT - img_h)/2 + MIN_ROW_START;
+        let row_start: u16 = (MAX_FRAME_HEIGHT - window_h) / 2 + MIN_ROW_START;
 
         //TODO calculate V_BLANK and H_BLANK??
 
         //s/b 0x30A with both bin 4:
         // 0x300 is the default value for 9:8 on ReadMode
-        let read_mode: u16 = 0x300 | ((column_binning as u16) << 2) | (row_binning as u16);
+        let read_mode: u16 =
+            0x300 | ((column_binning as u16) << 2) | (row_binning as u16);
 
-        self.write_context_a_reg(ContextARegister::WindowWidth, img_w)?;
-        self.write_context_a_reg(ContextARegister::WindowHeight, img_h)?;
-        self.write_context_a_reg(ContextARegister::HBlanking, H_BLANK)?;
-        self.write_context_a_reg(ContextARegister::VBlanking, V_BLANK)?;
-        self.write_context_a_reg(ContextARegister::ReadMode, read_mode)?;
-        self.write_context_a_reg(ContextARegister::ColumnStart, col_start)?;
-        self.write_context_a_reg(ContextARegister::RowStart, row_start)?;
+        match context {
+            ParamContext::ContextA => {
+                self.write_context_a_reg(ContextARegister::WindowWidth, window_w)?;
+                self.write_context_a_reg(ContextARegister::WindowHeight, window_h)?;
+                self.write_context_a_reg(ContextARegister::HBlanking, H_BLANK)?;
+                self.write_context_a_reg(ContextARegister::VBlanking, V_BLANK)?;
+                self.write_context_a_reg(ContextARegister::ReadMode, read_mode)?;
+                self.write_context_a_reg(ContextARegister::ColumnStart, col_start)?;
+                self.write_context_a_reg(ContextARegister::RowStart, row_start)?;
+            }
+            ParamContext::ContextB => {
+                self.write_context_b_reg(ContextBRegister::WindowWidth, window_w)?;
+                self.write_context_b_reg(ContextBRegister::WindowHeight, window_h)?;
+                self.write_context_b_reg(ContextBRegister::HBlanking, H_BLANK)?;
+                self.write_context_b_reg(ContextBRegister::VBlanking, V_BLANK)?;
+                self.write_context_b_reg(ContextBRegister::ReadMode, read_mode)?;
+                self.write_context_b_reg(ContextBRegister::ColumnStart, col_start)?;
+                self.write_context_b_reg(ContextBRegister::RowStart, row_start)?;
+            }
+        }
 
-        self.set_context_a_shutter_defaults()?;
         Ok(())
     }
 
-    pub fn set_context_a_shutter_defaults(&mut self) -> Result<(), crate::Error<CommE>>
-    {
+    /// Set default shutter values for Context A
+    pub fn set_context_a_shutter_defaults(
+        &mut self,
+    ) -> Result<(), crate::Error<CommE>> {
         //TODO allow passing shutter control parameters?
         // by default we activate HDR
         self.write_context_a_reg(ContextARegister::CoarseShutter1, 443)?; //default value
         self.write_context_a_reg(ContextARegister::CoarseShutter2, 473)?; //default value
-        self.write_context_a_reg(ContextARegister::CoarseShutterCtrl, 0x0164)?;//default value
+        self.write_context_a_reg(ContextARegister::CoarseShutterCtrl, 0x0164)?; //default value
         self.write_context_a_reg(ContextARegister::CoarseShutterTotal, 0x01E0)?; //default value
         Ok(())
     }
 
-    pub fn set_context_b_shutter_defaults(&mut self) -> Result<(), crate::Error<CommE>>
-    {
+    /// Set default shutter values for Context B
+    pub fn set_context_b_shutter_defaults(
+        &mut self,
+    ) -> Result<(), crate::Error<CommE>> {
         //TODO allow passing shutter control parameters?
         // by default we activate HDR
         self.write_context_b_reg(ContextBRegister::CoarseShutter1, 443)?; //default value
         self.write_context_b_reg(ContextBRegister::CoarseShutter2, 473)?; //default value
-        self.write_context_b_reg(ContextBRegister::CoarseShutterCtrl, 0x0164)?;//default value
+        self.write_context_b_reg(ContextBRegister::CoarseShutterCtrl, 0x0164)?; //default value
         self.write_context_b_reg(ContextBRegister::CoarseShutterTotal, 0x01E0)?; //default value
         Ok(())
     }
 
-
     #[cfg(feature = "rttdebug")]
-    pub fn dump_all_settings(&mut self, delay_source: &mut impl DelayMs<u8>) -> Result<(), crate::Error<CommE>> {
+    pub fn dump_all_settings(
+        &mut self,
+        delay_source: &mut impl DelayMs<u8>,
+    ) -> Result<(), crate::Error<CommE>> {
         // rprintln!("dump_all_settings:");
         // self.dump_general_settings()?;
         // delay_source.delay_ms(5u8);
@@ -328,7 +329,9 @@ where
     }
 
     #[cfg(feature = "rttdebug")]
-    pub fn dump_context_a_settings(&mut self) -> Result<(), crate::Error<CommE>> {
+    pub fn dump_context_a_settings(
+        &mut self,
+    ) -> Result<(), crate::Error<CommE>> {
         rprintln!("-- Context A settings:");
         self.dump_register_setting(ContextARegister::WindowWidth as u8)?;
         self.dump_register_setting(ContextARegister::WindowHeight as u8)?;
@@ -345,7 +348,9 @@ where
     }
 
     #[cfg(feature = "rttdebug")]
-    pub fn dump_context_b_settings(&mut self) -> Result<(), crate::Error<CommE>> {
+    pub fn dump_context_b_settings(
+        &mut self,
+    ) -> Result<(), crate::Error<CommE>> {
         rprintln!("-- Context B settings:");
         self.dump_register_setting(ContextBRegister::WindowWidth as u8)?;
         self.dump_register_setting(ContextBRegister::WindowHeight as u8)?;
@@ -395,23 +400,29 @@ where
     }
 
     #[cfg(feature = "rttdebug")]
-    pub fn dump_register_setting(&mut self, reg: u8) -> Result<(), crate::Error<CommE>> {
+    pub fn dump_register_setting(
+        &mut self,
+        reg: u8,
+    ) -> Result<(), crate::Error<CommE>> {
         let val = self.read_reg_u16(reg)?;
         rprintln!("0x{:X} = 0x{:x} {}", reg, val, val);
         Ok(())
     }
 
-
     /// Set a test pattern to test pixel data transfer from the camera
-    pub fn enable_pixel_test_pattern(&mut self, enable: bool, pattern: PixelTestPattern)
-        -> Result<(), crate::Error<CommE>>
-    {
+    pub fn enable_pixel_test_pattern(
+        &mut self,
+        enable: bool,
+        pattern: PixelTestPattern,
+    ) -> Result<(), crate::Error<CommE>> {
         if enable {
-            self.write_general_reg(GeneralRegister::TestPattern, (pattern as u16) | 0x2000)?;
+            self.write_general_reg(
+                GeneralRegister::TestPattern,
+                (pattern as u16) | 0x2000,
+            )?;
             //disable row noise correction as well (pass through test pixels)
             self.write_general_reg(GeneralRegister::RowNoiseCorrCtrl, 0x0000)?;
-        }
-        else {
+        } else {
             // clear the test pattern
             self.write_general_reg(GeneralRegister::TestPattern, 0x0000)?;
             //enable default noise correction
@@ -625,3 +636,5 @@ pub enum Binning {
     /// Binning 4: combine four adjacent pixels
     Four = 0b10,
 }
+
+
