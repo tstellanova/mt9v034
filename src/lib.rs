@@ -14,7 +14,6 @@ LICENSE: BSD3 (see LICENSE file)
 #[cfg(feature = "rttdebug")]
 use panic_rtt_core::rprintln;
 
-use embedded_hal::blocking::delay::DelayMs;
 
 /// Errors in this crate
 #[derive(Debug)]
@@ -77,19 +76,12 @@ where
     /// Second-stage configuration
     pub fn setup(
         &mut self,
-        _delay_source: &mut impl DelayMs<u8>,
     ) -> Result<(), crate::Error<CommE>> {
         #[cfg(feature = "rttdebug")]
         rprintln!("mt9v034-i2c setup start 0x{:x}", self.base_address);
 
         // probe the device: version should match 0x1324 ?
         let _version = self.read_reg_u16(GeneralRegister::ChipVersion as u8)?;
-
-        // #[cfg(feature = "rttdebug")]
-        // {
-        //     rprintln!("before setup:");
-        //     let _= self.dump_all_settings(delay_source);
-        // }
 
         // configure settings that apply to all contexts
         self.set_general_defaults()?;
@@ -104,11 +96,64 @@ where
         // restart image collection
         self.write_general_reg(GeneralRegister::SoftReset, 0x01)?;
 
-        // #[cfg(feature = "rttdebug")]
-        // {
-        //     rprintln!("after setup:");
-        //     let _= self.dump_all_settings(delay_source);
-        // }
+        let _verify_version =
+            self.read_reg_u16(GeneralRegister::ChipVersion as u8)?;
+        #[cfg(feature = "rttdebug")]
+        rprintln!("mt9v034-i2c setup done, vers: 0x{:x}", _verify_version);
+
+        Ok(())
+    }
+
+    /// Setup with configurable Context A and Context B dimensions.
+    /// Use this method instead `setup` if you know the exact dimensions
+    /// and binning you need.
+    /// - `win_width` and `win_height` are the window dimensions in pixels that will be collected
+    /// - `col_bin` is the column binning and `row_bin` is the row binning that describes how
+    /// many rows or columns are combined from the window into single result pixels
+    /// - `default_context` sets which configuration context (A or B) is set as the
+    /// initial active context
+    ///
+    pub fn setup_with_dimensions(
+        &mut self,
+        win_width_a: u16, win_height_a: u16,
+        col_bin_a: Binning, row_bin_a: Binning,
+        win_width_b: u16, win_height_b: u16,
+        col_bin_b: Binning, row_bin_b: Binning,
+        default_context: ParamContext,
+    ) -> Result<(), crate::Error<CommE>> {
+        #[cfg(feature = "rttdebug")]
+        rprintln!("mt9v034-i2c setup start 0x{:x}", self.base_address);
+
+        // probe the device: version should match 0x1324 ?
+        // with blocking i2c, the program will hang here if the device can't
+        // be contacted
+        let _version = self.read_reg_u16(GeneralRegister::ChipVersion as u8)?;
+
+        // configure settings that apply to all contexts
+        self.set_general_defaults()?;
+        self.set_context_dimensions(
+            ParamContext::ContextB,
+            win_height_b,
+            win_width_b,
+            col_bin_b,
+            row_bin_b,
+        )?;
+
+        self.set_context_b_shutter_defaults()?;
+        self.set_context_dimensions(
+            ParamContext::ContextA,
+            win_height_a,
+            win_width_a,
+            col_bin_a,
+            row_bin_a,
+        )?;
+        self.set_context_a_shutter_defaults()?;
+
+        // set an initial context
+        self.set_context(default_context)?;
+
+        // restart image collection after changing dimensions
+        self.write_general_reg(GeneralRegister::SoftReset, 0x01)?;
 
         let _verify_version =
             self.read_reg_u16(GeneralRegister::ChipVersion as u8)?;
@@ -169,6 +214,7 @@ where
 
         self.write_general_reg(GeneralRegister::AgcMaxGain, 0x0010)?;
         //TODO make pixel count variable based on dimensions?
+        // default is 44000, max is 65535
         self.write_general_reg(GeneralRegister::AgcAecPixelCount, 64 * 64)?; // TODO adjust with binning
         self.write_general_reg(GeneralRegister::AgcAecDesiredBin, 20)?; //desired luminance
         self.write_general_reg(GeneralRegister::AdcResCtrl, 0x0303)?; // 12 bit ADC
@@ -319,20 +365,6 @@ where
         Ok(())
     }
 
-    #[cfg(feature = "rttdebug")]
-    pub fn dump_all_settings(
-        &mut self,
-        delay_source: &mut impl DelayMs<u8>,
-    ) -> Result<(), crate::Error<CommE>> {
-        // rprintln!("dump_all_settings:");
-        // self.dump_general_settings()?;
-        // delay_source.delay_ms(5u8);
-        self.dump_context_a_settings()?;
-        delay_source.delay_ms(5u8);
-        // self.dump_context_b_settings()?;
-        // delay_source.delay_ms(5u8);
-        Ok(())
-    }
 
     #[cfg(feature = "rttdebug")]
     pub fn dump_context_a_settings(
