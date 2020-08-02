@@ -43,6 +43,15 @@ pub const ARDUCAM_BREAKOUT_ADDRESS: u8 = CAM_PERIPH_ADDRESS_00;
 pub struct Mt9v034<I2C> {
     base_address: u8,
     i2c: I2C,
+    win_width_a: u16,
+    win_height_a: u16,
+    win_width_b: u16,
+    win_height_b: u16,
+    col_bin_factor_a: u16,
+    row_bin_factor_a: u16,
+    col_bin_factor_b: u16,
+    row_bin_factor_b: u16,
+
 }
 
 impl<I2C, CommE> Mt9v034<I2C>
@@ -56,6 +65,14 @@ where
         Self {
             base_address: address,
             i2c,
+            win_width_a: 0,
+            win_height_a: 0,
+            win_width_b: 0,
+            win_height_b: 0,
+            col_bin_factor_a: 1,
+            row_bin_factor_a: 1,
+            col_bin_factor_b: 1,
+            row_bin_factor_b: 1
         }
     }
 
@@ -83,12 +100,16 @@ where
         // probe the device: version should match 0x1324 ?
         let _version = self.read_reg_u16(GeneralRegister::ChipVersion as u8)?;
 
-        // configure settings that apply to all contexts
-        self.set_general_defaults()?;
+        // setup_with_dimensions
+        // setup_with_dimensions
         self.set_context_b_default_dimensions()?;
         self.set_context_b_shutter_defaults()?;
         self.set_context_a_default_dimensions()?;
         self.set_context_a_shutter_defaults()?;
+
+        // configure settings that apply to all contexts
+        // 64x64 is the default image size for Context A (small square flow)
+        self.set_general_defaults(4096)?;
 
         //Select Context A
         self.set_context(ParamContext::ContextA)?;
@@ -129,8 +150,7 @@ where
         // be contacted
         let _version = self.read_reg_u16(GeneralRegister::ChipVersion as u8)?;
 
-        // configure settings that apply to all contexts
-        self.set_general_defaults()?;
+
         self.set_context_dimensions(
             ParamContext::ContextB,
             win_height_b,
@@ -149,6 +169,17 @@ where
         )?;
         self.set_context_a_shutter_defaults()?;
 
+        let max_pixels = match default_context {
+            ParamContext::ContextA => {
+                (self.win_height_a/self.row_bin_factor_a) * (self.win_width_a/self.col_bin_factor_a)
+            },
+            ParamContext::ContextB => {
+                (self.win_height_b/self.row_bin_factor_b) * (self.win_width_b/self.col_bin_factor_b)
+            },
+        };
+        // configure settings that apply to all contexts
+        self.set_general_defaults(max_pixels)?;
+
         // set an initial context
         self.set_context(default_context)?;
 
@@ -162,10 +193,6 @@ where
 
         Ok(())
     }
-
-
-
-    //TODO add config methods for setting frame dimensions for context A and context B
 
     fn write_general_reg(
         &mut self,
@@ -191,8 +218,19 @@ where
         self.write_reg_u16(reg as u8, data)
     }
 
+    /// Set just the maximum pixels to be used for adjusting automatic gain control
+    /// Note this the _output_ pixel count, ie the pixels post-binning
+    pub fn set_agc_pixel_count(&mut self, max_pixels: u16) -> Result<(), crate::Error<CommE>>
+    {
+        let agc_pixels =
+            if max_pixels > 65535 { 65535 }
+            else { max_pixels };
+        self.write_general_reg(GeneralRegister::AgcAecPixelCount, agc_pixels)
+    }
+
     /// Set some general configuration defaults
-    pub fn set_general_defaults(&mut self) -> Result<(), crate::Error<CommE>> {
+    /// - `max_pixel_count` is the maximum output pixels that will be used in the default context
+    pub fn set_general_defaults(&mut self, max_pixel_count: u16) -> Result<(), crate::Error<CommE>> {
         self.write_reg_u8(GeneralRegister::RowNoiseConstant as u8, 0x00)?;
 
         // reserved register recommendations from:
@@ -213,9 +251,7 @@ where
         self.write_general_reg(GeneralRegister::MaxExposure, 0x1F4)?;
 
         self.write_general_reg(GeneralRegister::AgcMaxGain, 0x0010)?;
-        //TODO make pixel count variable based on dimensions?
-        // default is 44000, max is 65535
-        self.write_general_reg(GeneralRegister::AgcAecPixelCount, 64 * 64)?; // TODO adjust with binning
+        self.set_agc_pixel_count(max_pixel_count)?;
         self.write_general_reg(GeneralRegister::AgcAecDesiredBin, 20)?; //desired luminance
         self.write_general_reg(GeneralRegister::AdcResCtrl, 0x0303)?; // 12 bit ADC
 
@@ -297,6 +333,9 @@ where
             Binning::Four => 91,
         };
 
+        let col_bin_factor = binning_to_factor(column_binning);
+        let row_bin_factor = binning_to_factor(row_binning);
+
         // Note for vert blanking: 10 the first value without dark line image errors
 
         //TODO calculate  V_BLANK and H_BLANK based on parameter inputs
@@ -317,6 +356,10 @@ where
 
         match context {
             ParamContext::ContextA => {
+                self.win_width_a = window_w;
+                self.win_height_a = window_h;
+                self.col_bin_factor_a = col_bin_factor;
+                self.row_bin_factor_a = row_bin_factor;
                 self.write_context_a_reg(ContextARegister::WindowWidth, window_w)?;
                 self.write_context_a_reg(ContextARegister::WindowHeight, window_h)?;
                 self.write_context_a_reg(ContextARegister::HBlanking, h_blank)?;
@@ -326,6 +369,10 @@ where
                 self.write_context_a_reg(ContextARegister::RowStart, row_start)?;
             }
             ParamContext::ContextB => {
+                self.win_width_b = window_w;
+                self.win_height_b = window_h;
+                self.col_bin_factor_b = col_bin_factor;
+                self.row_bin_factor_b = row_bin_factor;
                 self.write_context_b_reg(ContextBRegister::WindowWidth, window_w)?;
                 self.write_context_b_reg(ContextBRegister::WindowHeight, window_h)?;
                 self.write_context_b_reg(ContextBRegister::HBlanking, h_blank)?;
@@ -666,6 +713,7 @@ pub enum PixelTestPattern {
 
 /// Allowed row and column binning options
 #[repr(u8)]
+#[derive(Copy, Clone, Debug)]
 pub enum Binning {
     /// No binning (full resolution)
     None = 0b00,
@@ -673,6 +721,15 @@ pub enum Binning {
     Two = 0b01,
     /// Binning 4: combine four adjacent pixels
     Four = 0b10,
+}
+
+/// Convert binning to dividing factor
+pub fn binning_to_factor(binning: Binning) -> u16 {
+    match binning {
+        Binning::None => 1,
+        Binning::Two => 2,
+        Binning::Four => 4,
+    }
 }
 
 
