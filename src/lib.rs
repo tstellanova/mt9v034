@@ -150,7 +150,6 @@ where
         // be contacted
         let _version = self.read_reg_u16(GeneralRegister::ChipVersion as u8)?;
 
-
         self.set_context_dimensions(
             ParamContext::ContextB,
             win_height_b,
@@ -178,7 +177,7 @@ where
             },
         };
         // configure settings that apply to all contexts
-        self.set_general_defaults(max_pixels)?;
+        self.set_general_defaults(max_pixels as u32)?;
 
         // set an initial context
         self.set_context(default_context)?;
@@ -220,17 +219,17 @@ where
 
     /// Set just the maximum pixels to be used for adjusting automatic gain control
     /// Note this the _output_ pixel count, ie the pixels post-binning
-    pub fn set_agc_pixel_count(&mut self, max_pixels: u16) -> Result<(), crate::Error<CommE>>
+    pub fn set_agc_pixel_count(&mut self, max_pixels: u32) -> Result<(), crate::Error<CommE>>
     {
-        let agc_pixels =
+        let agc_pixels: u16 =
             if max_pixels > 65535 { 65535 }
-            else { max_pixels };
+            else { max_pixels as u16 };
         self.write_general_reg(GeneralRegister::AgcAecPixelCount, agc_pixels)
     }
 
     /// Set some general configuration defaults
     /// - `max_pixel_count` is the maximum output pixels that will be used in the default context
-    pub fn set_general_defaults(&mut self, max_pixel_count: u16) -> Result<(), crate::Error<CommE>> {
+    pub fn set_general_defaults(&mut self, max_pixel_count: u32) -> Result<(), crate::Error<CommE>> {
         self.write_reg_u8(GeneralRegister::RowNoiseConstant as u8, 0x00)?;
 
         // reserved register recommendations from:
