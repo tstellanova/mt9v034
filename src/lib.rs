@@ -2,6 +2,7 @@
 Copyright (c) 2020 Todd Stellanova
 LICENSE: BSD3 (see LICENSE file)
 */
+
 #![no_std]
 
 //! Configuration driver for the ON Semiconductor MT9V034 image sensor
@@ -13,7 +14,6 @@ LICENSE: BSD3 (see LICENSE file)
 
 #[cfg(feature = "rttdebug")]
 use panic_rtt_core::rprintln;
-
 
 /// Errors in this crate
 #[derive(Debug)]
@@ -51,7 +51,6 @@ pub struct Mt9v034<I2C> {
     row_bin_factor_a: BinningFactor,
     col_bin_factor_b: BinningFactor,
     row_bin_factor_b: BinningFactor,
-
 }
 
 impl<I2C, CommE> Mt9v034<I2C>
@@ -72,7 +71,7 @@ where
             col_bin_factor_a: BinningFactor::None,
             row_bin_factor_a: BinningFactor::None,
             col_bin_factor_b: BinningFactor::None,
-            row_bin_factor_b: BinningFactor::None
+            row_bin_factor_b: BinningFactor::None,
         }
     }
 
@@ -91,16 +90,13 @@ where
     }
 
     /// Second-stage configuration
-    pub fn setup(
-        &mut self,
-    ) -> Result<(), crate::Error<CommE>> {
+    pub fn setup(&mut self) -> Result<(), crate::Error<CommE>> {
         #[cfg(feature = "rttdebug")]
         rprintln!("mt9v034-i2c setup start 0x{:x}", self.base_address);
 
         // probe the device: version should match 0x1324 ?
         let _version = self.read_reg_u16(GeneralRegister::ChipVersion as u8)?;
 
-        // setup_with_dimensions
         // setup_with_dimensions
         self.set_context_b_default_dimensions()?;
         self.set_context_b_shutter_defaults()?;
@@ -136,10 +132,14 @@ where
     ///
     pub fn setup_with_dimensions(
         &mut self,
-        win_width_a: u16, win_height_a: u16,
-        col_bin_a: BinningFactor, row_bin_a: BinningFactor,
-        win_width_b: u16, win_height_b: u16,
-        col_bin_b: BinningFactor, row_bin_b: BinningFactor,
+        win_width_a: u16,
+        win_height_a: u16,
+        col_bin_a: BinningFactor,
+        row_bin_a: BinningFactor,
+        win_width_b: u16,
+        win_height_b: u16,
+        col_bin_b: BinningFactor,
+        row_bin_b: BinningFactor,
         default_context: ParamContext,
     ) -> Result<(), crate::Error<CommE>> {
         #[cfg(feature = "rttdebug")]
@@ -170,11 +170,13 @@ where
 
         let max_pixels = match default_context {
             ParamContext::ContextA => {
-                (self.win_height_a/self.row_bin_factor_a as u16) * (self.win_width_a/self.col_bin_factor_a as u16)
-            },
+                (self.win_height_a / self.row_bin_factor_a as u16)
+                    * (self.win_width_a / self.col_bin_factor_a as u16)
+            }
             ParamContext::ContextB => {
-                (self.win_height_b/self.row_bin_factor_b as u16) * (self.win_width_b/self.col_bin_factor_b as u16)
-            },
+                (self.win_height_b / self.row_bin_factor_b as u16)
+                    * (self.win_width_b / self.col_bin_factor_b as u16)
+            }
         };
         // configure settings that apply to all contexts
         self.set_general_defaults(max_pixels as u32)?;
@@ -219,17 +221,24 @@ where
 
     /// Set just the maximum pixels to be used for adjusting automatic gain control
     /// Note this the _output_ pixel count, ie the pixels post-binning
-    pub fn set_agc_pixel_count(&mut self, max_pixels: u32) -> Result<(), crate::Error<CommE>>
-    {
-        let agc_pixels: u16 =
-            if max_pixels > 65535 { 65535 }
-            else { max_pixels as u16 };
+    pub fn set_agc_pixel_count(
+        &mut self,
+        max_pixels: u32,
+    ) -> Result<(), crate::Error<CommE>> {
+        let agc_pixels: u16 = if max_pixels > 65535 {
+            65535
+        } else {
+            max_pixels as u16
+        };
         self.write_general_reg(GeneralRegister::AgcAecPixelCount, agc_pixels)
     }
 
     /// Set some general configuration defaults
     /// - `max_pixel_count` is the maximum output pixels that will be used in the default context
-    pub fn set_general_defaults(&mut self, max_pixel_count: u32) -> Result<(), crate::Error<CommE>> {
+    pub fn set_general_defaults(
+        &mut self,
+        max_pixel_count: u32,
+    ) -> Result<(), crate::Error<CommE>> {
         self.write_reg_u8(GeneralRegister::RowNoiseConstant as u8, 0x00)?;
 
         // reserved register recommendations from:
@@ -316,7 +325,6 @@ where
         col_bin_factor: BinningFactor,
         row_bin_factor: BinningFactor,
     ) -> Result<(), crate::Error<CommE>> {
-
         // Per datasheet:
         // "The minimum total row time is 704 columns (horizontal width + horizontal blanking).
         // The minimum horizontal blanking is:
@@ -326,7 +334,7 @@ where
         // When the window width is set below 643,  horizontal blanking must be increased.
         // In binning mode, the minimum row time is R0x04+R0x05 = 704."
 
-        let min_h_blank:u16 = match col_bin_factor {
+        let min_h_blank: u16 = match col_bin_factor {
             BinningFactor::None => 61,
             BinningFactor::Two => 71,
             BinningFactor::Four => 91,
@@ -342,8 +350,8 @@ where
         const V_BLANK: u16 = 10;
 
         const MIN_COL_START: u16 = 1;
-        const MIN_ROW_START: u16 = 4;//TODO verify "dark rows"
-        // center the window horizontally
+        const MIN_ROW_START: u16 = 4; //TODO verify "dark rows"
+                                      // center the window horizontally
         let col_start: u16 = (MAX_FRAME_WIDTH - window_w) / 2 + MIN_COL_START;
         // center the window vertically
         let row_start: u16 = (MAX_FRAME_HEIGHT - window_h) / 2 + MIN_ROW_START;
@@ -359,26 +367,56 @@ where
                 self.win_height_a = window_h;
                 self.col_bin_factor_a = col_bin_factor;
                 self.row_bin_factor_a = row_bin_factor;
-                self.write_context_a_reg(ContextARegister::WindowWidth, window_w)?;
-                self.write_context_a_reg(ContextARegister::WindowHeight, window_h)?;
+                self.write_context_a_reg(
+                    ContextARegister::WindowWidth,
+                    window_w,
+                )?;
+                self.write_context_a_reg(
+                    ContextARegister::WindowHeight,
+                    window_h,
+                )?;
                 self.write_context_a_reg(ContextARegister::HBlanking, h_blank)?;
                 self.write_context_a_reg(ContextARegister::VBlanking, V_BLANK)?;
-                self.write_context_a_reg(ContextARegister::ReadMode, read_mode)?;
-                self.write_context_a_reg(ContextARegister::ColumnStart, col_start)?;
-                self.write_context_a_reg(ContextARegister::RowStart, row_start)?;
+                self.write_context_a_reg(
+                    ContextARegister::ReadMode,
+                    read_mode,
+                )?;
+                self.write_context_a_reg(
+                    ContextARegister::ColumnStart,
+                    col_start,
+                )?;
+                self.write_context_a_reg(
+                    ContextARegister::RowStart,
+                    row_start,
+                )?;
             }
             ParamContext::ContextB => {
                 self.win_width_b = window_w;
                 self.win_height_b = window_h;
                 self.col_bin_factor_b = col_bin_factor;
                 self.row_bin_factor_b = row_bin_factor;
-                self.write_context_b_reg(ContextBRegister::WindowWidth, window_w)?;
-                self.write_context_b_reg(ContextBRegister::WindowHeight, window_h)?;
+                self.write_context_b_reg(
+                    ContextBRegister::WindowWidth,
+                    window_w,
+                )?;
+                self.write_context_b_reg(
+                    ContextBRegister::WindowHeight,
+                    window_h,
+                )?;
                 self.write_context_b_reg(ContextBRegister::HBlanking, h_blank)?;
                 self.write_context_b_reg(ContextBRegister::VBlanking, V_BLANK)?;
-                self.write_context_b_reg(ContextBRegister::ReadMode, read_mode)?;
-                self.write_context_b_reg(ContextBRegister::ColumnStart, col_start)?;
-                self.write_context_b_reg(ContextBRegister::RowStart, row_start)?;
+                self.write_context_b_reg(
+                    ContextBRegister::ReadMode,
+                    read_mode,
+                )?;
+                self.write_context_b_reg(
+                    ContextBRegister::ColumnStart,
+                    col_start,
+                )?;
+                self.write_context_b_reg(
+                    ContextBRegister::RowStart,
+                    row_start,
+                )?;
             }
         }
 
@@ -410,7 +448,6 @@ where
         self.write_context_b_reg(ContextBRegister::CoarseShutterTotal, 0x01E0)?; //default value
         Ok(())
     }
-
 
     #[cfg(feature = "rttdebug")]
     pub fn dump_context_a_settings(
@@ -710,18 +747,6 @@ pub enum PixelTestPattern {
     DiagonalShade = 0x1800,
 }
 
-/// Allowed row and column binning options
-#[repr(u8)]
-#[derive(Copy, Clone, Debug)]
-pub enum BinningSelector {
-    /// No binning (full resolution)
-    None = 0b00,
-    /// Binning 2: combine two adjacent pixels
-    Two = 0b01,
-    /// Binning 4: combine four adjacent pixels
-    Four = 0b10,
-}
-
 #[repr(u16)]
 #[derive(Copy, Clone, Debug)]
 pub enum BinningFactor {
@@ -733,6 +758,17 @@ pub enum BinningFactor {
     Four = 4,
 }
 
+/// Values sent to the mt9v034 to select binning
+#[repr(u8)]
+#[derive(Copy, Clone, Debug)]
+enum BinningSelector {
+    /// No binning (full resolution)
+    None = 0b00,
+    /// Binning 2: combine two adjacent pixels
+    Two = 0b01,
+    /// Binning 4: combine four adjacent pixels
+    Four = 0b10,
+}
 
 /// Convert actual binning factor ( {1,2,4} ) to binning selector
 fn binning_factor_to_selector(factor: BinningFactor) -> BinningSelector {
@@ -742,5 +778,3 @@ fn binning_factor_to_selector(factor: BinningFactor) -> BinningSelector {
         BinningFactor::Four => BinningSelector::Four,
     }
 }
-
-
