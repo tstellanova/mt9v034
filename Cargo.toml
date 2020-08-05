@@ -1,6 +1,6 @@
 [package]
 name = "mt9v034-i2c"
-version = "0.1.4"
+version = "0.1.5"
 authors = ["Todd Stellanova <tstellanova@users.noreply.github.com>"]
 edition = "2018"
 description = "mt9v034 image sensor two-wire programming driver"

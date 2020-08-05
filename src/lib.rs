@@ -47,10 +47,10 @@ pub struct Mt9v034<I2C> {
     win_height_a: u16,
     win_width_b: u16,
     win_height_b: u16,
-    col_bin_factor_a: u16,
-    row_bin_factor_a: u16,
-    col_bin_factor_b: u16,
-    row_bin_factor_b: u16,
+    col_bin_factor_a: BinningFactor,
+    row_bin_factor_a: BinningFactor,
+    col_bin_factor_b: BinningFactor,
+    row_bin_factor_b: BinningFactor,
 
 }
 
@@ -69,10 +69,10 @@ where
             win_height_a: 0,
             win_width_b: 0,
             win_height_b: 0,
-            col_bin_factor_a: 1,
-            row_bin_factor_a: 1,
-            col_bin_factor_b: 1,
-            row_bin_factor_b: 1
+            col_bin_factor_a: BinningFactor::None,
+            row_bin_factor_a: BinningFactor::None,
+            col_bin_factor_b: BinningFactor::None,
+            row_bin_factor_b: BinningFactor::None
         }
     }
 
@@ -137,9 +137,9 @@ where
     pub fn setup_with_dimensions(
         &mut self,
         win_width_a: u16, win_height_a: u16,
-        col_bin_a: Binning, row_bin_a: Binning,
+        col_bin_a: BinningFactor, row_bin_a: BinningFactor,
         win_width_b: u16, win_height_b: u16,
-        col_bin_b: Binning, row_bin_b: Binning,
+        col_bin_b: BinningFactor, row_bin_b: BinningFactor,
         default_context: ParamContext,
     ) -> Result<(), crate::Error<CommE>> {
         #[cfg(feature = "rttdebug")]
@@ -170,10 +170,10 @@ where
 
         let max_pixels = match default_context {
             ParamContext::ContextA => {
-                (self.win_height_a/self.row_bin_factor_a) * (self.win_width_a/self.col_bin_factor_a)
+                (self.win_height_a/self.row_bin_factor_a as u16) * (self.win_width_a/self.col_bin_factor_a as u16)
             },
             ParamContext::ContextB => {
-                (self.win_height_b/self.row_bin_factor_b) * (self.win_width_b/self.col_bin_factor_b)
+                (self.win_height_b/self.row_bin_factor_b as u16) * (self.win_width_b/self.col_bin_factor_b as u16)
             },
         };
         // configure settings that apply to all contexts
@@ -269,8 +269,8 @@ where
         //TODO calculate frame/line sizes
         const VIDEO_IMG_HEIGHT: u16 = 480 / 2;
         const VIDEO_IMG_WIDTH: u16 = 752 / 2;
-        const COLUMN_BINNING: Binning = Binning::Two;
-        const ROW_BINNING: Binning = Binning::Two;
+        const COLUMN_BINNING: BinningFactor = BinningFactor::Two;
+        const ROW_BINNING: BinningFactor = BinningFactor::Two;
         const WINDOW_W: u16 = VIDEO_IMG_WIDTH * 2;
         const WINDOW_H: u16 = VIDEO_IMG_HEIGHT * 2;
 
@@ -289,8 +289,8 @@ where
     ) -> Result<(), crate::Error<CommE>> {
         const FLOW_IMG_HEIGHT: u16 = 64;
         const FLOW_IMG_WIDTH: u16 = 64;
-        const COLUMN_BINNING: Binning = Binning::Four;
-        const ROW_BINNING: Binning = Binning::Four;
+        const COLUMN_BINNING: BinningFactor = BinningFactor::Four;
+        const ROW_BINNING: BinningFactor = BinningFactor::Four;
         const WINDOW_W: u16 = FLOW_IMG_WIDTH * 4;
         const WINDOW_H: u16 = FLOW_IMG_HEIGHT * 4;
 
@@ -313,8 +313,8 @@ where
         context: ParamContext,
         window_h: u16,
         window_w: u16,
-        column_binning: Binning,
-        row_binning: Binning,
+        col_bin_factor: BinningFactor,
+        row_bin_factor: BinningFactor,
     ) -> Result<(), crate::Error<CommE>> {
 
         // Per datasheet:
@@ -326,14 +326,14 @@ where
         // When the window width is set below 643,  horizontal blanking must be increased.
         // In binning mode, the minimum row time is R0x04+R0x05 = 704."
 
-        let min_h_blank:u16 = match column_binning {
-            Binning::None => 61,
-            Binning::Two => 71,
-            Binning::Four => 91,
+        let min_h_blank:u16 = match col_bin_factor {
+            BinningFactor::None => 61,
+            BinningFactor::Two => 71,
+            BinningFactor::Four => 91,
         };
 
-        let col_bin_factor = binning_to_factor(column_binning);
-        let row_bin_factor = binning_to_factor(row_binning);
+        let col_binning = binning_factor_to_selector(col_bin_factor);
+        let row_binning = binning_factor_to_selector(row_bin_factor);
 
         // Note for vert blanking: 10 the first value without dark line image errors
 
@@ -351,7 +351,7 @@ where
         //s/b 0x30A with both bin 4:
         // 0x300 is the default value for 9:8 on ReadMode
         let read_mode: u16 =
-            0x300 | ((column_binning as u16) << 2) | (row_binning as u16);
+            0x300 | ((col_binning as u16) << 2) | (row_binning as u16);
 
         match context {
             ParamContext::ContextA => {
@@ -713,7 +713,7 @@ pub enum PixelTestPattern {
 /// Allowed row and column binning options
 #[repr(u8)]
 #[derive(Copy, Clone, Debug)]
-pub enum Binning {
+pub enum BinningSelector {
     /// No binning (full resolution)
     None = 0b00,
     /// Binning 2: combine two adjacent pixels
@@ -722,12 +722,24 @@ pub enum Binning {
     Four = 0b10,
 }
 
-/// Convert binning to dividing factor
-pub fn binning_to_factor(binning: Binning) -> u16 {
-    match binning {
-        Binning::None => 1,
-        Binning::Two => 2,
-        Binning::Four => 4,
+#[repr(u16)]
+#[derive(Copy, Clone, Debug)]
+pub enum BinningFactor {
+    /// No binning (full resolution)
+    None = 1,
+    /// Binning 2: combine two adjacent pixels
+    Two = 2,
+    /// Binning 4: combine four adjacent pixels
+    Four = 4,
+}
+
+
+/// Convert actual binning factor ( {1,2,4} ) to binning selector
+fn binning_factor_to_selector(factor: BinningFactor) -> BinningSelector {
+    match factor {
+        BinningFactor::None => BinningSelector::None,
+        BinningFactor::Two => BinningSelector::Two,
+        BinningFactor::Four => BinningSelector::Four,
     }
 }
 
